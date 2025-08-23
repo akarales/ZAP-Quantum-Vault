@@ -6,8 +6,10 @@ pub struct User {
     pub id: String,
     pub username: String,
     pub email: String,
+    pub role: String,
     pub is_active: bool,
     pub mfa_enabled: bool,
+    pub last_login: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

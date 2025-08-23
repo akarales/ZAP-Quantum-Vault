@@ -4,8 +4,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Shield } from 'lucide-react';
+import { Shield, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { invoke } from '@tauri-apps/api/core';
 
 export const AuthPage: React.FC = () => {
   const { login, register } = useAuth();
@@ -22,6 +23,9 @@ export const AuthPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  
+  // Clear users functionality
+  const [clearingUsers, setClearingUsers] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +58,20 @@ export const AuthPage: React.FC = () => {
       setMessage(error instanceof Error ? error.message : 'Registration failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearUsers = async () => {
+    setClearingUsers(true);
+    setMessage('');
+    
+    try {
+      await invoke<string>('clear_all_users');
+      setMessage('All users cleared! Next user to register will become admin.');
+    } catch (error) {
+      setMessage(`Failed to clear users: ${String(error)}`);
+    } finally {
+      setClearingUsers(false);
     }
   };
 
@@ -186,6 +204,22 @@ export const AuthPage: React.FC = () => {
                 </AlertDescription>
               </Alert>
             )}
+
+            {/* Clear Users Button for Development */}
+            <div className="mt-6 pt-6 border-t border-slate-600">
+              <Button 
+                variant="outline" 
+                onClick={handleClearUsers}
+                disabled={clearingUsers}
+                className="w-full border-red-600 text-red-400 hover:bg-red-900/20"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {clearingUsers ? 'Clearing Users...' : 'Clear All Users (Dev)'}
+              </Button>
+              <p className="text-xs text-slate-400 text-center mt-2">
+                Development tool: Next user to register becomes admin
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>

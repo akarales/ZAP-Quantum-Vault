@@ -5,8 +5,10 @@ interface User {
   id: string;
   username: string;
   email: string;
+  role: string;
   is_active: boolean;
   mfa_enabled: boolean;
+  last_login: string | null;
   created_at: string;
   updated_at: string;
 }

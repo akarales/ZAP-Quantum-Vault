@@ -1,10 +1,10 @@
-mod commands;
-mod crypto;
-mod database;
-mod models;
-mod state;
+pub mod commands;
+pub mod crypto;
+pub mod database;
+pub mod models;
+pub mod state;
 
-use crate::commands::{register_user, login_user, get_user_count, clear_all_users};
+use crate::commands::{register_user, login_user, get_user_count, get_all_users, update_user_role, toggle_user_status, delete_user, clear_all_users, reset_user_password, update_admin_profile};
 use crate::database::initialize_database;
 use crate::state::AppState;
 use std::sync::Arc;
@@ -34,7 +34,13 @@ pub fn run() {
             register_user,
             login_user,
             get_user_count,
-            clear_all_users
+            get_all_users,
+            update_user_role,
+            toggle_user_status,
+            delete_user,
+            clear_all_users,
+            reset_user_password,
+            update_admin_profile
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,13 +1,12 @@
 use anyhow::Result;
 use sqlx::SqlitePool;
-use std::path::PathBuf;
+use std::env;
 
 pub async fn initialize_database() -> Result<SqlitePool> {
-    // Create database in the project directory for persistence
-    let mut db_path = std::env::current_dir()?;
-    db_path.push("vault.db");
-    
-    let database_url = format!("sqlite:{}", db_path.to_string_lossy());
+    // Get current working directory and create database path
+    let current_dir = env::current_dir()?;
+    let db_path = current_dir.join("vault.db");
+    let database_url = format!("sqlite:{}", db_path.display());
     println!("Database URL: {}", database_url);
     
     let pool = SqlitePool::connect(&database_url).await?;
@@ -20,14 +19,17 @@ pub async fn initialize_database() -> Result<SqlitePool> {
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             salt TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
             is_active BOOLEAN NOT NULL DEFAULT 1,
             mfa_enabled BOOLEAN NOT NULL DEFAULT 0,
+            last_login TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )"
     )
     .execute(&pool)
     .await?;
+    
     
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS vaults (

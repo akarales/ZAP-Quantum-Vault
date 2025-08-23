@@ -5,6 +5,9 @@ import { AuthPage } from '@/components/pages/AuthPage';
 import { DashboardPage } from '@/components/pages/DashboardPage';
 import { KeyManagementPage } from '@/components/pages/KeyManagementPage';
 import { SecurityCenterPage } from '@/components/pages/SecurityCenterPage';
+import { UserManagementPage } from '@/components/pages/UserManagementPage';
+import { AdminResetPage } from '@/components/pages/AdminResetPage';
+import { SettingsPage } from '@/components/pages/SettingsPage';
 import { MainLayout } from '@/components/layout/MainLayout';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -93,10 +96,7 @@ export const AppRouter: React.FC = () => {
         
         <Route path="/users" element={
           <ProtectedRoute>
-            <div className="p-6">
-              <h1 className="text-2xl font-bold">Users</h1>
-              <p className="text-muted-foreground">Coming soon...</p>
-            </div>
+            <UserManagementPage />
           </ProtectedRoute>
         } />
         
@@ -165,10 +165,7 @@ export const AppRouter: React.FC = () => {
         
         <Route path="/settings" element={
           <ProtectedRoute>
-            <div className="p-6">
-              <h1 className="text-2xl font-bold">Settings</h1>
-              <p className="text-muted-foreground">Coming soon...</p>
-            </div>
+            <SettingsPage />
           </ProtectedRoute>
         } />
         
@@ -189,6 +186,9 @@ export const AppRouter: React.FC = () => {
             </div>
           </ProtectedRoute>
         } />
+        
+        {/* Admin Reset - Temporary route for clearing users */}
+        <Route path="/admin-reset" element={<AdminResetPage />} />
         
         {/* Default redirect */}
         <Route path="/" element={
