@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Shield, Users, Database, LogOut } from "lucide-react";
 
 interface AuthResponse {
   user: {
@@ -86,131 +93,259 @@ function App() {
 
   if (currentUser) {
     return (
-      <main className="container">
-        <h1>ZAP Quantum Vault</h1>
-        <div className="user-info">
-          <h2>Welcome, {currentUser.user.username}!</h2>
-          <p>Email: {currentUser.user.email}</p>
-          <p>User ID: {currentUser.user.id}</p>
-          <p>Account created: {new Date(currentUser.user.created_at).toLocaleString()}</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center space-x-3">
+              <Shield className="h-8 w-8 text-blue-400" />
+              <h1 className="text-3xl font-bold text-white">ZAP Quantum Vault</h1>
+            </div>
+            <Button 
+              variant="outline" 
+              onClick={() => setCurrentUser(null)}
+              className="text-white border-white hover:bg-white hover:text-slate-900"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
+          </div>
+
+          <Card className="mb-6 bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center space-x-2">
+                <Users className="h-5 w-5" />
+                <span>Welcome, {currentUser.user.username}!</span>
+              </CardTitle>
+              <CardDescription className="text-slate-300">
+                Account Information
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-slate-200">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p><strong>Email:</strong> {currentUser.user.email}</p>
+                  <p><strong>User ID:</strong> {currentUser.user.id}</p>
+                </div>
+                <div>
+                  <p><strong>Account created:</strong> {new Date(currentUser.user.created_at).toLocaleString()}</p>
+                  <Badge variant="secondary" className="mt-2">
+                    {currentUser.user.is_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center space-x-2">
+                <Database className="h-5 w-5" />
+                <span>Database Administration</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-slate-200">
+                  Users in database: <Badge variant="outline">{userCount !== null ? userCount : 'Loading...'}</Badge>
+                </span>
+              </div>
+              <div className="flex space-x-3">
+                <Button 
+                  variant="destructive" 
+                  onClick={clearAllUsers}
+                >
+                  Clear All Users
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={getUserCount}
+                  className="text-white border-slate-600 hover:bg-slate-700"
+                >
+                  Refresh Count
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {message && (
+            <Alert className="mt-6 bg-blue-900/50 border-blue-700">
+              <AlertDescription className="text-blue-200">
+                {message}
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
-        
-        <div className="admin-section">
-          <h3>Database Admin</h3>
-          <p>Users in database: {userCount !== null ? userCount : 'Loading...'}</p>
-          <button onClick={clearAllUsers} style={{backgroundColor: '#dc3545', color: 'white'}}>
-            Clear All Users
-          </button>
-          <button onClick={() => setCurrentUser(null)} style={{marginLeft: '10px'}}>
-            Logout
-          </button>
-        </div>
-        
-        {message && <p className="message">{message}</p>}
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="container">
-      <h1>ZAP Quantum Vault</h1>
-      <p>Secure cryptographic key management system</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-6">
+      <div className="max-w-md mx-auto">
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center space-x-3 mb-4">
+            <Shield className="h-10 w-10 text-blue-400" />
+            <h1 className="text-4xl font-bold text-white">ZAP Quantum Vault</h1>
+          </div>
+          <p className="text-slate-300">Secure cryptographic key management system</p>
+        </div>
 
-      <div className="auth-toggle">
-        <button 
-          onClick={() => setIsLogin(false)} 
-          className={!isLogin ? 'active' : ''}
-        >
-          Register
-        </button>
-        <button 
-          onClick={() => setIsLogin(true)} 
-          className={isLogin ? 'active' : ''}
-        >
-          Login
-        </button>
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardHeader>
+            <CardTitle className="text-white text-center">Authentication</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={isLogin ? "login" : "register"} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 bg-slate-700">
+                <TabsTrigger 
+                  value="register" 
+                  onClick={() => setIsLogin(false)}
+                  className="text-slate-200 data-[state=active]:bg-slate-600 data-[state=active]:text-white"
+                >
+                  Register
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="login" 
+                  onClick={() => setIsLogin(true)}
+                  className="text-slate-200 data-[state=active]:bg-slate-600 data-[state=active]:text-white"
+                >
+                  Login
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="register" className="space-y-4 mt-6">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    register();
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Username"
+                      required
+                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Email"
+                      required
+                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Password"
+                      required
+                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm Password"
+                      required
+                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                  <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
+                    Create Account
+                  </Button>
+                </form>
+              </TabsContent>
+              
+              <TabsContent value="login" className="space-y-4 mt-6">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    login();
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Input
+                      type="text"
+                      value={loginUsername}
+                      onChange={(e) => setLoginUsername(e.target.value)}
+                      placeholder="Username"
+                      required
+                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Input
+                      type="password"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      placeholder="Password"
+                      required
+                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                  <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
+                    Sign In
+                  </Button>
+                </form>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+
+        <Separator className="my-6 bg-slate-600" />
+
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center space-x-2">
+              <Database className="h-5 w-5" />
+              <span>Database Status</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-slate-200">
+                Users in database: <Badge variant="outline">{userCount !== null ? userCount : 'Loading...'}</Badge>
+              </span>
+            </div>
+            <div className="flex space-x-3">
+              <Button 
+                variant="outline" 
+                onClick={getUserCount}
+                className="text-white border-slate-600 hover:bg-slate-700"
+              >
+                Refresh Count
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={clearAllUsers}
+              >
+                Clear All Users
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {message && (
+          <Alert className="mt-6 bg-blue-900/50 border-blue-700">
+            <AlertDescription className="text-blue-200">
+              {message}
+            </AlertDescription>
+          </Alert>
+        )}
       </div>
-
-      {!isLogin ? (
-        <form
-          className="auth-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            register();
-          }}
-        >
-          <h2>Create Account</h2>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Username"
-            required
-          />
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            required
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            required
-          />
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Confirm Password"
-            required
-          />
-          <button type="submit">Create Account</button>
-        </form>
-      ) : (
-        <form
-          className="auth-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            login();
-          }}
-        >
-          <h2>Sign In</h2>
-          <input
-            type="text"
-            value={loginUsername}
-            onChange={(e) => setLoginUsername(e.target.value)}
-            placeholder="Username"
-            required
-          />
-          <input
-            type="password"
-            value={loginPassword}
-            onChange={(e) => setLoginPassword(e.target.value)}
-            placeholder="Password"
-            required
-          />
-          <button type="submit">Sign In</button>
-        </form>
-      )}
-
-      <div className="admin-section">
-        <h3>Database Status</h3>
-        <p>Users in database: {userCount !== null ? userCount : 'Loading...'}</p>
-        <button onClick={getUserCount}>Refresh Count</button>
-        <button 
-          onClick={clearAllUsers} 
-          style={{backgroundColor: '#dc3545', color: 'white', marginLeft: '10px'}}
-        >
-          Clear All Users
-        </button>
-      </div>
-
-      {message && <p className="message">{message}</p>}
-    </main>
+    </div>
   );
 }
 
