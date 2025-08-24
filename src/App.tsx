@@ -1,8 +1,6 @@
-import React from 'react';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { AppRouter } from '@/router/AppRouter';
-import './App.css';
 
 function App() {
   return (
