@@ -1,14 +1,14 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { AuthPage } from '@/components/pages/AuthPage';
-import { DashboardPage } from '@/components/pages/DashboardPage';
-import { KeyManagementPage } from '@/components/pages/KeyManagementPage';
-import { SecurityCenterPage } from '@/components/pages/SecurityCenterPage';
-import { UserManagementPage } from '@/components/pages/UserManagementPage';
-import { AdminResetPage } from '@/components/pages/AdminResetPage';
-import { SettingsPage } from '@/components/pages/SettingsPage';
-import VaultPage from '@/components/pages/VaultPage';
+import { AuthPage } from '@/pages/AuthPage';
+import { DashboardPage } from '@/pages/DashboardPage';
+import { KeyManagementPage } from '@/pages/KeyManagementPage';
+import { SecurityCenterPage } from '@/pages/SecurityCenterPage';
+import { UserManagementPage } from '@/pages/UserManagementPage';
+import { AdminResetPage } from '@/pages/AdminResetPage';
+import { SettingsPage } from '@/pages/SettingsPage';
+import VaultPage from '@/pages/VaultPage';
 import { MainLayout } from '@/components/layout/MainLayout';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
