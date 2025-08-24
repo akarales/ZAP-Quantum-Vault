@@ -1,5 +1,5 @@
-use crate::crypto::{hash_password, verify_password};
-use crate::models::{CreateUserRequest, LoginRequest, AuthResponse, User};
+use crate::crypto::{hash_password, verify_password, encrypt_data, decrypt_data, serialize_tags, deserialize_tags};
+use crate::models::{CreateUserRequest, LoginRequest, AuthResponse, User, CreateVaultRequest, Vault, CreateVaultItemRequest, VaultItem};
 use crate::state::AppState;
 use chrono::Utc;
 use sqlx::Row;
@@ -367,4 +367,213 @@ pub async fn update_admin_profile(
     }
     
     Ok("Profile updated successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn create_vault(
+    state: State<'_, AppState>,
+    user_id: String,
+    request: CreateVaultRequest,
+) -> Result<Vault, String> {
+    let db = &*state.db;
+    
+    let vault_id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let created_at = now.to_rfc3339();
+    let updated_at = created_at.clone();
+    
+    sqlx::query(
+        "INSERT INTO vaults (id, user_id, name, description, vault_type, is_shared, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&vault_id)
+    .bind(&user_id)
+    .bind(&request.name)
+    .bind(&request.description)
+    .bind(&request.vault_type)
+    .bind(false)
+    .bind(&created_at)
+    .bind(&updated_at)
+    .execute(db)
+    .await
+    .map_err(|e| e.to_string())?;
+    
+    Ok(Vault {
+        id: vault_id,
+        user_id,
+        name: request.name,
+        description: request.description,
+        vault_type: request.vault_type,
+        is_shared: false,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
+pub async fn get_user_vaults(
+    state: State<'_, AppState>,
+    user_id: String,
+) -> Result<Vec<Vault>, String> {
+    let db = &*state.db;
+    
+    let rows = sqlx::query(
+        "SELECT id, user_id, name, description, vault_type, is_shared, created_at, updated_at 
+         FROM vaults WHERE user_id = ? ORDER BY created_at DESC"
+    )
+    .bind(&user_id)
+    .fetch_all(db)
+    .await
+    .map_err(|e| e.to_string())?;
+    
+    let mut vaults = Vec::new();
+    for row in rows {
+        vaults.push(Vault {
+            id: row.get("id"),
+            user_id: row.get("user_id"),
+            name: row.get("name"),
+            description: row.get("description"),
+            vault_type: row.get("vault_type"),
+            is_shared: row.get("is_shared"),
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                .map_err(|e| e.to_string())?
+                .with_timezone(&Utc),
+            updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))
+                .map_err(|e| e.to_string())?
+                .with_timezone(&Utc),
+        });
+    }
+    
+    Ok(vaults)
+}
+
+#[tauri::command]
+pub async fn create_vault_item(
+    state: State<'_, AppState>,
+    request: CreateVaultItemRequest,
+) -> Result<VaultItem, String> {
+    let db = &*state.db;
+    
+    let item_id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let created_at = now.to_rfc3339();
+    let updated_at = created_at.clone();
+    
+    // Encrypt the data (using simple base64 for now)
+    let encrypted_data = encrypt_data(&request.data)
+        .map_err(|e| e.to_string())?;
+    
+    let tags_json = serialize_tags(&request.tags);
+    
+    sqlx::query(
+        "INSERT INTO vault_items (id, vault_id, item_type, title, encrypted_data, metadata, tags, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&item_id)
+    .bind(&request.vault_id)
+    .bind(&request.item_type)
+    .bind(&request.title)
+    .bind(&encrypted_data)
+    .bind(&request.metadata)
+    .bind(&tags_json)
+    .bind(&created_at)
+    .bind(&updated_at)
+    .execute(db)
+    .await
+    .map_err(|e| e.to_string())?;
+    
+    Ok(VaultItem {
+        id: item_id,
+        vault_id: request.vault_id,
+        item_type: request.item_type,
+        title: request.title,
+        encrypted_data,
+        metadata: request.metadata,
+        tags: request.tags,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
+pub async fn get_vault_items(
+    state: State<'_, AppState>,
+    vault_id: String,
+) -> Result<Vec<VaultItem>, String> {
+    let db = &*state.db;
+    
+    let rows = sqlx::query(
+        "SELECT id, vault_id, item_type, title, encrypted_data, metadata, tags, created_at, updated_at 
+         FROM vault_items WHERE vault_id = ? ORDER BY created_at DESC"
+    )
+    .bind(&vault_id)
+    .fetch_all(db)
+    .await
+    .map_err(|e| e.to_string())?;
+    
+    let mut items = Vec::new();
+    for row in rows {
+        let tags_str: String = row.get("tags");
+        let tags = deserialize_tags(&tags_str);
+        
+        items.push(VaultItem {
+            id: row.get("id"),
+            vault_id: row.get("vault_id"),
+            item_type: row.get("item_type"),
+            title: row.get("title"),
+            encrypted_data: row.get("encrypted_data"),
+            metadata: row.get("metadata"),
+            tags,
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                .map_err(|e| e.to_string())?
+                .with_timezone(&Utc),
+            updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))
+                .map_err(|e| e.to_string())?
+                .with_timezone(&Utc),
+        });
+    }
+    
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn decrypt_vault_item(
+    _state: State<'_, AppState>,
+    encrypted_data: String,
+) -> Result<String, String> {
+    // Decrypt the data (using simple base64 for now)
+    decrypt_data(&encrypted_data)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_vault(
+    state: State<'_, AppState>,
+    vault_id: String,
+) -> Result<String, String> {
+    let db = &*state.db;
+    
+    sqlx::query("DELETE FROM vaults WHERE id = ?")
+        .bind(&vault_id)
+        .execute(db)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok("Vault deleted successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn delete_vault_item(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<String, String> {
+    let db = &*state.db;
+    
+    sqlx::query("DELETE FROM vault_items WHERE id = ?")
+        .bind(&item_id)
+        .execute(db)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok("Vault item deleted successfully".to_string())
 }

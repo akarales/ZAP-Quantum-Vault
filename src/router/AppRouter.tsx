@@ -8,6 +8,7 @@ import { SecurityCenterPage } from '@/components/pages/SecurityCenterPage';
 import { UserManagementPage } from '@/components/pages/UserManagementPage';
 import { AdminResetPage } from '@/components/pages/AdminResetPage';
 import { SettingsPage } from '@/components/pages/SettingsPage';
+import VaultPage from '@/components/pages/VaultPage';
 import { MainLayout } from '@/components/layout/MainLayout';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -72,10 +73,7 @@ export const AppRouter: React.FC = () => {
         
         <Route path="/storage" element={
           <ProtectedRoute>
-            <div className="p-6">
-              <h1 className="text-2xl font-bold">Secure Storage</h1>
-              <p className="text-muted-foreground">Coming soon...</p>
-            </div>
+            <VaultPage />
           </ProtectedRoute>
         } />
         
