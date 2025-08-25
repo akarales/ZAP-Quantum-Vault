@@ -1,0 +1,62 @@
+// PolicyKit rule for ZAP Quantum Vault removable drive access
+// This allows the vault app to format, mount, and manage removable drives
+// without requiring full root privileges
+
+polkit.addRule(function(action, subject) {
+    // Allow mounting/unmounting removable drives
+    if ((action.id == "org.freedesktop.udisks2.filesystem-mount-system" ||
+         action.id == "org.freedesktop.udisks2.filesystem-unmount-others" ||
+         action.id == "org.freedesktop.udisks2.filesystem-mount" ||
+         action.id == "org.freedesktop.udisks2.filesystem-unmount") &&
+        subject.isInGroup("users")) {
+        
+        // Check if the device is removable
+        if (action.lookup("drive.removable") == true ||
+            action.lookup("drive.connection_interface") == "usb") {
+            return polkit.Result.YES;
+        }
+    }
+    
+    // Allow formatting removable drives
+    if ((action.id == "org.freedesktop.udisks2.modify-device-system" ||
+         action.id == "org.freedesktop.udisks2.modify-device") &&
+        subject.isInGroup("users")) {
+        
+        // Only for removable/USB drives
+        if (action.lookup("drive.removable") == true ||
+            action.lookup("drive.connection_interface") == "usb") {
+            return polkit.Result.YES;
+        }
+    }
+    
+    return polkit.Result.NOT_HANDLED;
+});
+
+// Additional rule for direct filesystem operations on removable drives
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        subject.isInGroup("users")) {
+        
+        var program = action.lookup("program");
+        var command_line = action.lookup("command_line");
+        
+        // Allow mkfs.ext4, mount, umount, chown, chmod on removable drives
+        if (program == "/usr/sbin/mkfs.ext4" ||
+            program == "/usr/bin/mount" ||
+            program == "/usr/bin/umount" ||
+            program == "/usr/bin/chown" ||
+            program == "/usr/bin/chmod") {
+            
+            // Check if command involves removable drive paths
+            if (command_line && (
+                command_line.indexOf("/dev/sd") != -1 ||
+                command_line.indexOf("/tmp/zap_vault_") != -1 ||
+                command_line.indexOf("/media/") != -1 ||
+                command_line.indexOf("/mnt/") != -1)) {
+                return polkit.Result.YES;
+            }
+        }
+    }
+    
+    return polkit.Result.NOT_HANDLED;
+});

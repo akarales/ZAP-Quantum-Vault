@@ -81,6 +81,25 @@ pub async fn initialize_database() -> Result<SqlitePool> {
     .execute(&pool)
     .await?;
     
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS usb_drive_passwords (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            drive_id TEXT NOT NULL,
+            device_path TEXT NOT NULL,
+            drive_label TEXT,
+            encrypted_password TEXT NOT NULL,
+            password_hint TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_used TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+            UNIQUE(user_id, drive_id)
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
     println!("Database initialized successfully!");
     Ok(pool)
 }

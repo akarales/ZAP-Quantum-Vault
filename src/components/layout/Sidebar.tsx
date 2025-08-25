@@ -19,7 +19,8 @@ import {
   HelpCircle,
   Headphones,
   Building2,
-  Atom
+  Atom,
+  Snowflake
 } from 'lucide-react';
 
 interface SidebarProps {}
@@ -38,6 +39,7 @@ const navigationItems = [
     items: [
       { name: 'Key Management', href: '/keys', icon: Key },
       { name: 'Secure Storage', href: '/storage', icon: Database },
+      { name: 'Cold Storage', href: '/cold-storage', icon: Snowflake },
       { name: 'Security Center', href: '/security', icon: Shield },
       { name: 'Air Gap Mode', href: '/airgap', icon: HardDrive },
     ]

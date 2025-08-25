@@ -1,0 +1,21 @@
+# ZAP Quantum Vault - Sudoers configuration
+# This allows the application to run specific USB/encryption commands without password
+# Install with: sudo cp zap-vault-sudoers /etc/sudoers.d/zap-vault
+
+# Replace 'anubix' with your actual username
+anubix ALL=(ALL) NOPASSWD: /bin/mount
+anubix ALL=(ALL) NOPASSWD: /bin/umount
+anubix ALL=(ALL) NOPASSWD: /bin/mkdir
+anubix ALL=(ALL) NOPASSWD: /sbin/cryptsetup
+anubix ALL=(ALL) NOPASSWD: /sbin/blkid
+anubix ALL=(ALL) NOPASSWD: /sbin/lsblk
+anubix ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4
+anubix ALL=(ALL) NOPASSWD: /sbin/mkfs.xfs
+anubix ALL=(ALL) NOPASSWD: /sbin/mkfs.btrfs
+anubix ALL=(ALL) NOPASSWD: /sbin/mkfs.f2fs
+anubix ALL=(ALL) NOPASSWD: /bin/dd
+anubix ALL=(ALL) NOPASSWD: /usr/bin/shred
+
+# Alternative: More restrictive - only specific mount points
+# anubix ALL=(ALL) NOPASSWD: /bin/mount * /media/*
+# anubix ALL=(ALL) NOPASSWD: /bin/umount /media/*

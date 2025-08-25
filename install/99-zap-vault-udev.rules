@@ -1,0 +1,14 @@
+# udev rules for ZAP Quantum Vault removable drive management
+# This ensures removable drives have proper permissions for the vault app
+
+# USB storage devices - set group ownership to 'disk' and make writable
+SUBSYSTEM=="block", ATTRS{removable}=="1", ENV{ID_BUS}=="usb", GROUP="disk", MODE="0664"
+
+# USB storage devices - allow users in 'disk' group to access
+SUBSYSTEM=="block", ATTRS{removable}=="1", ENV{ID_BUS}=="usb", TAG+="uaccess"
+
+# SD cards and other removable media
+SUBSYSTEM=="block", ATTRS{removable}=="1", GROUP="disk", MODE="0664", TAG+="uaccess"
+
+# Auto-mount permissions for removable drives
+SUBSYSTEM=="block", ATTRS{removable}=="1", ENV{UDISKS_FILESYSTEM_SHARED}="1"

@@ -9,6 +9,8 @@ import { UserManagementPage } from '@/pages/UserManagementPage';
 import { AdminResetPage } from '@/pages/AdminResetPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import VaultPage from '@/pages/VaultPage';
+import { ColdStoragePage } from '@/pages/ColdStoragePage';
+import UsbDriveDetailPage from '@/pages/UsbDriveDetailPage';
 import { MainLayout } from '@/components/layout/MainLayout';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -74,6 +76,18 @@ export const AppRouter: React.FC = () => {
         <Route path="/storage" element={
           <ProtectedRoute>
             <VaultPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/cold-storage" element={
+          <ProtectedRoute>
+            <ColdStoragePage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/cold-storage/drive/:driveId" element={
+          <ProtectedRoute>
+            <UsbDriveDetailPage />
           </ProtectedRoute>
         } />
         
