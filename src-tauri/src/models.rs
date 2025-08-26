@@ -38,6 +38,7 @@ pub struct CreateVaultRequest {
     pub name: String,
     pub description: Option<String>,
     pub vault_type: String,
+    pub is_shared: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,6 +49,8 @@ pub struct Vault {
     pub description: Option<String>,
     pub vault_type: String,
     pub is_shared: bool,
+    pub is_default: bool,
+    pub is_system_default: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

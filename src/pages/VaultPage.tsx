@@ -11,7 +11,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Vault, Lock, Share2, Calendar, Trash2, Eye, EyeOff } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
 
 interface Vault {
   id: string;
@@ -20,15 +19,17 @@ interface Vault {
   description?: string;
   vault_type: string;
   is_shared: boolean;
-  created_at: string;
-  updated_at: string;
+  is_default: boolean;
+  is_system_default: boolean;
+  created_at: string | Date;
+  updated_at: string | Date;
 }
 
 interface VaultItem {
   id: string;
   vault_id: string;
-  name: string;
-  data_type: string;
+  title: string;
+  item_type: string;
   encrypted_data: string;
   metadata?: string;
   tags?: string[];
@@ -45,15 +46,14 @@ interface CreateVaultRequest {
 
 interface CreateVaultItemRequest {
   vault_id: string;
-  name: string;
-  data_type: string;
+  title: string;
+  item_type: string;
   data: string;
   metadata?: string;
   tags?: string[];
 }
 
 export default function VaultPage() {
-  const { user } = useAuth();
   const [vaults, setVaults] = useState<Vault[]>([]);
   const [selectedVault, setSelectedVault] = useState<Vault | null>(null);
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
@@ -75,8 +75,8 @@ export default function VaultPage() {
   // Create item form state
   const [newItem, setNewItem] = useState<CreateVaultItemRequest>({
     vault_id: '',
-    name: '',
-    data_type: 'text',
+    title: '',
+    item_type: 'text',
     data: '',
     metadata: '',
     tags: []
@@ -85,24 +85,54 @@ export default function VaultPage() {
   const [tagInput, setTagInput] = useState('');
 
   useEffect(() => {
-    if (user) {
-      loadVaults();
-    }
-  }, [user]);
+    loadVaults();
+  }, []);
 
   const loadVaults = async () => {
-    if (!user) return;
-    
     setLoading(true);
-    setError('');
-    
+    setError(''); // Clear previous errors
+    console.log('🔍 VaultPage: Starting to load vaults...');
     try {
-      const userVaults = await invoke<Vault[]>('get_user_vaults', { userId: user.id });
-      setVaults(userVaults);
+      console.log('🔧 VaultPage: Invoking get_user_vaults_offline command...');
+      const vaultList = await invoke('get_user_vaults_offline') as Vault[];
+      console.log('📦 VaultPage: Raw response from backend:', JSON.stringify(vaultList, null, 2));
+      console.log(`📊 VaultPage: Total vaults loaded: ${vaultList ? vaultList.length : 'null/undefined'}`);
+      
+      if (vaultList && Array.isArray(vaultList)) {
+        vaultList.forEach((vault, index) => {
+          console.log(`  📁 Vault ${index + 1}: ${vault.name} (${vault.id}) - Default: ${vault.is_default}, System: ${vault.is_system_default}`);
+        });
+        
+        setVaults(vaultList);
+        console.log('✅ VaultPage: Vaults successfully set in state');
+      } else {
+        console.warn('⚠️ VaultPage: Received invalid vault data:', vaultList);
+        setVaults([]);
+        setError('Received invalid vault data from backend');
+      }
     } catch (err) {
+      console.error('❌ VaultPage: Failed to load vaults:', err);
+      console.error('❌ VaultPage: Error details:', JSON.stringify(err, null, 2));
       setError(`Failed to load vaults: ${err}`);
+      setVaults([]); // Ensure vaults is empty on error
     } finally {
       setLoading(false);
+    }
+  };
+
+  const debugDatabase = async () => {
+    console.log('🔍 VaultPage: Running database debug...');
+    try {
+      const dbState = await invoke('debug_database_state') as string;
+      console.log('📊 Database State:', dbState);
+      
+      const vaultQuery = await invoke('debug_vault_query') as string;
+      console.log('📦 Vault Query Result:', vaultQuery);
+      
+      alert(`Database Debug Results:\n\n${dbState}\n\n${vaultQuery}`);
+    } catch (err) {
+      console.error('❌ Debug failed:', err);
+      alert(`Debug failed: ${err}`);
     }
   };
 
@@ -111,7 +141,7 @@ export default function VaultPage() {
     setError('');
     
     try {
-      const items = await invoke<VaultItem[]>('get_vault_items', { vaultId });
+      const items = await invoke<VaultItem[]>('get_vault_items_offline', { vaultId });
       setVaultItems(items);
     } catch (err) {
       setError(`Failed to load vault items: ${err}`);
@@ -121,18 +151,14 @@ export default function VaultPage() {
   };
 
   const handleCreateVault = async () => {
-    if (!user || !newVault.name.trim()) return;
+    if (!newVault.name.trim()) return;
 
     setLoading(true);
     setError('');
     setSuccess('');
 
     try {
-      await invoke('create_vault', {
-        userId: user.id,
-        request: newVault
-      });
-      
+      await invoke('create_vault_offline', { request: newVault });
       setSuccess('Vault created successfully!');
       setShowCreateVault(false);
       setNewVault({
@@ -151,7 +177,7 @@ export default function VaultPage() {
   };
 
   const handleCreateItem = async () => {
-    if (!selectedVault || !newItem.name.trim() || !newItem.data.trim()) return;
+    if (!selectedVault || !newItem.title.trim() || !newItem.data.trim()) return;
 
     setLoading(true);
     setError('');
@@ -164,18 +190,9 @@ export default function VaultPage() {
         tags: tagInput ? tagInput.split(',').map(tag => tag.trim()).filter(tag => tag) : []
       };
 
-      await invoke('create_vault_item', { request: itemData });
+      await invoke('create_vault_item_offline', { request: itemData });
       
       setSuccess('Item added to vault successfully!');
-      setShowCreateItem(false);
-      setNewItem({
-        vault_id: '',
-        name: '',
-        data_type: 'text',
-        data: '',
-        metadata: '',
-        tags: []
-      });
       setTagInput('');
       
       await loadVaultItems(selectedVault.id);
@@ -193,17 +210,10 @@ export default function VaultPage() {
 
   const toggleItemDataVisibility = async (itemId: string) => {
     if (showItemData[itemId]) {
-      // Hide data
       setShowItemData(prev => ({ ...prev, [itemId]: false }));
     } else {
-      // Show data - decrypt first
       try {
-        const decryptedData = await invoke<string>('decrypt_vault_item', { itemId });
-        setVaultItems(prev => prev.map(item => 
-          item.id === itemId 
-            ? { ...item, encrypted_data: decryptedData }
-            : item
-        ));
+        await invoke('decrypt_vault_item_offline', { itemId });
         setShowItemData(prev => ({ ...prev, [itemId]: true }));
       } catch (err) {
         setError(`Failed to decrypt item: ${err}`);
@@ -221,7 +231,7 @@ export default function VaultPage() {
     setSuccess('');
 
     try {
-      await invoke('delete_vault', { vaultId });
+      await invoke('delete_vault_offline', { vaultId });
       setSuccess('Vault deleted successfully!');
       
       if (selectedVault?.id === vaultId) {
@@ -247,7 +257,7 @@ export default function VaultPage() {
     setSuccess('');
 
     try {
-      await invoke('delete_vault_item', { itemId });
+      await invoke('delete_vault_item_offline', { itemId });
       setSuccess('Item deleted successfully!');
       
       if (selectedVault) {
@@ -260,27 +270,12 @@ export default function VaultPage() {
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Vault className="h-8 w-8" />
-            My Vaults
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Securely store and manage your sensitive data
-          </p>
+          <h1 className="text-3xl font-bold">My Vaults</h1>
+          <p className="text-muted-foreground">Securely store and manage your sensitive data</p>
         </div>
         
         <Dialog open={showCreateVault} onOpenChange={setShowCreateVault}>
@@ -294,17 +289,17 @@ export default function VaultPage() {
             <DialogHeader>
               <DialogTitle>Create New Vault</DialogTitle>
               <DialogDescription>
-                Create a secure vault to store your sensitive data.
+                Create a secure vault to store your sensitive information.
               </DialogDescription>
             </DialogHeader>
             
             <div className="space-y-4">
               <div>
-                <Label htmlFor="vault-name">Vault Name *</Label>
+                <Label htmlFor="vault-name">Name</Label>
                 <Input
                   id="vault-name"
                   value={newVault.name}
-                  onChange={(e) => setNewVault(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => setNewVault({ ...newVault, name: e.target.value })}
                   placeholder="Enter vault name"
                 />
               </div>
@@ -314,25 +309,21 @@ export default function VaultPage() {
                 <Textarea
                   id="vault-description"
                   value={newVault.description}
-                  onChange={(e) => setNewVault(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Optional description"
-                  rows={3}
+                  onChange={(e) => setNewVault({ ...newVault, description: e.target.value })}
+                  placeholder="Enter vault description (optional)"
                 />
               </div>
               
               <div>
-                <Label htmlFor="vault-type">Vault Type</Label>
-                <Select
-                  value={newVault.vault_type}
-                  onValueChange={(value) => setNewVault(prev => ({ ...prev, vault_type: value }))}
-                >
+                <Label htmlFor="vault-type">Type</Label>
+                <Select value={newVault.vault_type} onValueChange={(value) => setNewVault({ ...newVault, vault_type: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="personal">Personal</SelectItem>
                     <SelectItem value="business">Business</SelectItem>
-                    <SelectItem value="family">Family</SelectItem>
+                    <SelectItem value="shared">Shared</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -373,6 +364,12 @@ export default function VaultPage() {
         </Alert>
       )}
 
+      <div className="mb-4">
+        <Button onClick={debugDatabase} variant="outline" size="sm">
+          🔍 Debug Database
+        </Button>
+      </div>
+
       <Tabs defaultValue="vaults" className="w-full">
         <TabsList>
           <TabsTrigger value="vaults">My Vaults ({vaults.length})</TabsTrigger>
@@ -384,9 +381,7 @@ export default function VaultPage() {
         </TabsList>
 
         <TabsContent value="vaults" className="space-y-4">
-          {loading && vaults.length === 0 ? (
-            <div className="text-center py-8">Loading vaults...</div>
-          ) : vaults.length === 0 ? (
+          {vaults.length === 0 ? (
             <Card>
               <CardContent className="text-center py-8">
                 <Vault className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -403,13 +398,16 @@ export default function VaultPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {vaults.map((vault) => (
-                <Card key={vault.id} className="cursor-pointer hover:shadow-md transition-shadow">
+                <Card key={vault.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleSelectVault(vault)}>
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="flex items-center gap-2">
-                          <Lock className="h-4 w-4" />
+                          <Vault className="h-5 w-5" />
                           {vault.name}
+                          <Badge variant="outline">{vault.vault_type}</Badge>
+                          {vault.is_default && <Badge variant="secondary">Default</Badge>}
+                          {vault.is_system_default && <Badge variant="destructive">System</Badge>}
                         </CardTitle>
                         {vault.description && (
                           <CardDescription className="mt-1">
@@ -417,41 +415,30 @@ export default function VaultPage() {
                           </CardDescription>
                         )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteVault(vault.id);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-2">
+                        {vault.is_shared && <Share2 className="h-4 w-4 text-muted-foreground" />}
+                        {!vault.is_system_default && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteVault(vault.id);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary">{vault.vault_type}</Badge>
-                        {vault.is_shared && (
-                          <Badge variant="outline">
-                            <Share2 className="h-3 w-3 mr-1" />
-                            Shared
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        Created {formatDate(vault.created_at)}
-                      </div>
-                      <div className="flex gap-2 mt-4">
-                        <Button
-                          size="sm"
-                          onClick={() => handleSelectVault(vault)}
-                          className="flex-1"
-                        >
-                          View Items
-                        </Button>
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          Created {new Date(vault.created_at).toLocaleDateString()}
+                        </span>
                       </div>
                     </div>
                   </CardContent>
@@ -464,13 +451,7 @@ export default function VaultPage() {
         {selectedVault && (
           <TabsContent value="items" className="space-y-4">
             <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">{selectedVault.name}</h2>
-                <p className="text-muted-foreground">
-                  {selectedVault.description || 'No description'}
-                </p>
-              </div>
-              
+              <h2 className="text-xl font-semibold">Items in {selectedVault.name}</h2>
               <Dialog open={showCreateItem} onOpenChange={setShowCreateItem}>
                 <DialogTrigger asChild>
                   <Button>
@@ -488,21 +469,18 @@ export default function VaultPage() {
                   
                   <div className="space-y-4">
                     <div>
-                      <Label htmlFor="item-name">Item Name *</Label>
+                      <Label htmlFor="item-title">Title</Label>
                       <Input
-                        id="item-name"
-                        value={newItem.name}
-                        onChange={(e) => setNewItem(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="Enter item name"
+                        id="item-title"
+                        value={newItem.title}
+                        onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
+                        placeholder="Enter item title"
                       />
                     </div>
                     
                     <div>
-                      <Label htmlFor="item-type">Data Type</Label>
-                      <Select
-                        value={newItem.data_type}
-                        onValueChange={(value) => setNewItem(prev => ({ ...prev, data_type: value }))}
-                      >
+                      <Label htmlFor="item-type">Type</Label>
+                      <Select value={newItem.item_type} onValueChange={(value) => setNewItem({ ...newItem, item_type: value })}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -517,28 +495,27 @@ export default function VaultPage() {
                     </div>
                     
                     <div>
-                      <Label htmlFor="item-data">Data *</Label>
+                      <Label htmlFor="item-data">Data</Label>
                       <Textarea
                         id="item-data"
                         value={newItem.data}
-                        onChange={(e) => setNewItem(prev => ({ ...prev, data: e.target.value }))}
-                        placeholder="Enter sensitive data"
-                        rows={4}
+                        onChange={(e) => setNewItem({ ...newItem, data: e.target.value })}
+                        placeholder="Enter the data to encrypt and store"
                       />
                     </div>
                     
                     <div>
-                      <Label htmlFor="item-metadata">Metadata</Label>
+                      <Label htmlFor="item-metadata">Metadata (Optional)</Label>
                       <Input
                         id="item-metadata"
                         value={newItem.metadata}
-                        onChange={(e) => setNewItem(prev => ({ ...prev, metadata: e.target.value }))}
-                        placeholder="Optional metadata"
+                        onChange={(e) => setNewItem({ ...newItem, metadata: e.target.value })}
+                        placeholder="Additional information about this item"
                       />
                     </div>
                     
                     <div>
-                      <Label htmlFor="item-tags">Tags</Label>
+                      <Label htmlFor="item-tags">Tags (Optional)</Label>
                       <Input
                         id="item-tags"
                         value={tagInput}
@@ -554,7 +531,7 @@ export default function VaultPage() {
                     </Button>
                     <Button 
                       onClick={handleCreateItem} 
-                      disabled={loading || !newItem.name.trim() || !newItem.data.trim()}
+                      disabled={loading || !newItem.title.trim() || !newItem.data.trim()}
                     >
                       {loading ? 'Adding...' : 'Add Item'}
                     </Button>
@@ -585,8 +562,8 @@ export default function VaultPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <CardTitle className="flex items-center gap-2">
-                            {item.name}
-                            <Badge variant="outline">{item.data_type}</Badge>
+                            {item.title}
+                            <Badge variant="outline">{item.item_type}</Badge>
                           </CardTitle>
                           {item.metadata && (
                             <CardDescription className="mt-1">
@@ -618,15 +595,12 @@ export default function VaultPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {showItemData[item.id] && (
-                          <div className="p-3 bg-muted rounded-md">
-                            <Label className="text-sm font-medium">Data:</Label>
-                            <pre className="text-sm mt-1 whitespace-pre-wrap break-words">
-                              {item.encrypted_data}
-                            </pre>
-                          </div>
-                        )}
-                        
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">
+                            Created {new Date(item.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
                         {item.tags && item.tags.length > 0 && (
                           <div className="flex gap-1 flex-wrap">
                             {item.tags.map((tag, index) => (
@@ -636,19 +610,6 @@ export default function VaultPage() {
                             ))}
                           </div>
                         )}
-                        
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            Created {formatDate(item.created_at)}
-                          </div>
-                          {item.updated_at !== item.created_at && (
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              Updated {formatDate(item.updated_at)}
-                            </div>
-                          )}
-                        </div>
                       </div>
                     </CardContent>
                   </Card>

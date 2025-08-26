@@ -405,6 +405,8 @@ pub async fn create_vault(
         description: request.description,
         vault_type: request.vault_type,
         is_shared: false,
+        is_default: false,
+        is_system_default: false,
         created_at: now,
         updated_at: now,
     })
@@ -435,6 +437,8 @@ pub async fn get_user_vaults(
             description: row.get("description"),
             vault_type: row.get("vault_type"),
             is_shared: row.get("is_shared"),
+            is_default: false,
+            is_system_default: false,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
                 .map_err(|e| e.to_string())?
                 .with_timezone(&Utc),

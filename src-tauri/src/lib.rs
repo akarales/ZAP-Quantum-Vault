@@ -3,6 +3,11 @@ mod database;
 mod database_new;
 mod state;
 mod vault_service;
+mod models;
+mod commands;
+mod vault_commands;
+mod debug_commands;
+mod utils;
 pub mod crypto;
 mod cold_storage;
 mod cold_storage_commands;
@@ -29,6 +34,8 @@ use crate::jwt_commands::{refresh_token, logout_user, validate_session, get_toke
 use crate::usb_password_commands::{save_usb_drive_password, get_usb_drive_password, get_user_usb_drive_passwords, delete_usb_drive_password, update_usb_drive_password_hint};
 use crate::bitcoin_commands::{generate_bitcoin_key, generate_hd_wallet, list_bitcoin_keys, list_hd_wallets, derive_hd_key, export_keys_to_usb, get_key_backup_history};
 use crate::bitcoin_key_commands::{decrypt_private_key, get_bitcoin_key_details, update_bitcoin_key_metadata, delete_bitcoin_key};
+use crate::commands::{create_vault, get_user_vaults, create_vault_item, get_vault_items, delete_vault, delete_vault_item, decrypt_vault_item};
+use crate::vault_commands::{get_user_vaults_offline, create_vault_offline, get_vault_items_offline, create_vault_item_offline, delete_vault_offline, delete_vault_item_offline, decrypt_vault_item_offline};
 use crate::logging::init_logger;
 use crate::database_new::initialize_database;
 use crate::state::AppState;
@@ -89,12 +96,37 @@ pub fn run() {
             save_usb_drive_password,
             get_usb_drive_password,
             get_user_usb_drive_passwords,
-            delete_usb_drive_password,
             update_usb_drive_password_hint,
             refresh_token,
             logout_user,
             validate_session,
             get_token_info,
+            commands::register_user,
+            commands::login_user,
+            commands::get_user_count,
+            commands::get_all_users,
+            commands::update_user_role,
+            commands::toggle_user_status,
+            commands::delete_user,
+            commands::clear_all_users,
+            commands::reset_user_password,
+            commands::update_admin_profile,
+            commands::create_vault,
+            commands::get_user_vaults,
+            commands::create_vault_item,
+            commands::get_vault_items,
+            commands::delete_vault,
+            commands::delete_vault_item,
+            commands::decrypt_vault_item,
+            vault_commands::get_user_vaults_offline,
+            vault_commands::create_vault_offline,
+            vault_commands::get_vault_items_offline,
+            vault_commands::create_vault_item_offline,
+            vault_commands::delete_vault_offline,
+            vault_commands::delete_vault_item_offline,
+            vault_commands::decrypt_vault_item_offline,
+            debug_commands::debug_database_state,
+            debug_commands::debug_vault_query,
             generate_bitcoin_key,
             generate_hd_wallet,
             list_bitcoin_keys,
@@ -105,7 +137,7 @@ pub fn run() {
             decrypt_private_key,
             get_bitcoin_key_details,
             update_bitcoin_key_metadata,
-            delete_bitcoin_key
+            delete_bitcoin_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
