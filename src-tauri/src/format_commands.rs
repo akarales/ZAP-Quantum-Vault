@@ -2,7 +2,6 @@ use tauri::{Emitter, AppHandle};
 use std::process::Command;
 use std::os::unix::process::ExitStatusExt;
 use log::{info, debug};
-use crate::cold_storage::UsbDrive;
 
 #[tauri::command]
 pub async fn format_and_encrypt_drive(

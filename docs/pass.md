@@ -23,4 +23,14 @@ Aw=wmb39QDZh.6xi
 GF2avDw0OlXZGM_*
 =c4]Swcn(=HtQhc6
 $*QvU)$dbCmCYi)Q
+bitcoin key password:
+Rl0#v%Z*hkUX5kRqR<}e:bOe.>K@9{^%
+Ir1$(.w5xjnJ+h|>sk8g>vNqwrr]vm@{
+    Su9{QYc><HZP=Tj&Fkk[Sx@vyySP-XP7
+    Ab8$lCp!_%sWL%=Cqmc.M7itFu&bxdDJ
+    Ab8$lCp!_%sWL%=Cqmc.M7itFu&bxdDJ
+    Am6?NO]Jb^Bl|*iBq?:{.jX-U{EB*(C2
+    Am6?NO]Jb^Bl|*iBq?:{.jX-U{EB*(C2
+receiving address:
+undefined
 ```

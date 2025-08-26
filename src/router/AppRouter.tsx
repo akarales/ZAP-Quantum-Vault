@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { useAuth } from '@/context/AuthContext';
 import { AuthPage } from '@/pages/AuthPage';
 import { DashboardPage } from '@/pages/DashboardPage';
-import { KeyManagementPage } from '@/pages/KeyManagementPage';
+import { BitcoinKeysPageNew } from '@/pages/BitcoinKeysPageNew';
 import { SecurityCenterPage } from '@/pages/SecurityCenterPage';
 import { UserManagementPage } from '@/pages/UserManagementPage';
 import { AdminResetPage } from '@/pages/AdminResetPage';
@@ -69,7 +69,7 @@ export const AppRouter: React.FC = () => {
         {/* Placeholder routes for future pages */}
         <Route path="/keys" element={
           <ProtectedRoute>
-            <KeyManagementPage />
+            <BitcoinKeysPageNew />
           </ProtectedRoute>
         } />
         
