@@ -1,13 +1,28 @@
 use anyhow::Result;
-use sqlx::SqlitePool;
-use std::env;
+use sqlx::{SqlitePool, migrate::MigrateDatabase, Sqlite};
+use crate::crypto::{hash_password};
+use uuid::Uuid;
+use tauri::Manager;
 
-pub async fn initialize_database() -> Result<SqlitePool> {
-    // Get current working directory and create database path
-    let current_dir = env::current_dir()?;
-    let db_path = current_dir.join("vault.db");
+pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) -> Result<SqlitePool> {
+    // Use Tauri's app data directory - the proper way for production apps
+    let mut db_path = app_handle.path().app_data_dir()
+        .map_err(|e| anyhow::anyhow!("Failed to get app data dir: {}", e))?;
+    
+    // Create the app data directory if it doesn't exist
+    std::fs::create_dir_all(&db_path)?;
+    
+    // Add the database filename
+    db_path.push("vault.db");
+    
     let database_url = format!("sqlite:{}", db_path.display());
-    println!("Database URL: {}", database_url);
+    println!("Connecting to database: {}", database_url);
+    
+    // Create database if it doesn't exist
+    if !Sqlite::database_exists(&database_url).await.unwrap_or(false) {
+        println!("Creating database {}", database_url);
+        Sqlite::create_database(&database_url).await?;
+    }
     
     let pool = SqlitePool::connect(&database_url).await?;
     
@@ -183,56 +198,72 @@ pub async fn initialize_database() -> Result<SqlitePool> {
     .execute(&pool)
     .await?;
     
-    // Create default user and vault for offline mode
-    let default_user_id = "default_user";
-    let default_vault_id = "default_vault";
-    let now = chrono::Utc::now().to_rfc3339();
-    
-    // Insert default user if not exists
-    sqlx::query!(
-        "INSERT OR IGNORE INTO users (id, username, email, password_hash, salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        default_user_id,
-        "offline_user",
-        "offline@vault.local",
-        "offline_mode",
-        "offline_salt",
-        now,
-        now
-    )
-    .execute(&pool)
-    .await?;
-    
-    // Insert default vault if not exists
-    sqlx::query!(
-        "INSERT OR IGNORE INTO vaults (id, user_id, name, description, vault_type, is_default, is_system_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        default_vault_id,
-        default_user_id,
-        "Default Vault",
-        "System default vault for offline Bitcoin key storage",
-        "personal",
-        true,
-        true,
-        now,
-        now
-    )
-    .execute(&pool)
-    .await?;
-    
-    // Add migration for new columns if they don't exist
-    sqlx::query(
-        "ALTER TABLE vaults ADD COLUMN is_default BOOLEAN NOT NULL DEFAULT 0"
-    )
-    .execute(&pool)
-    .await
-    .ok(); // Ignore error if column already exists
-    
-    sqlx::query(
-        "ALTER TABLE vaults ADD COLUMN is_system_default BOOLEAN NOT NULL DEFAULT 0"
-    )
-    .execute(&pool)
-    .await
-    .ok(); // Ignore error if column already exists
+    // Seed database with admin user and test data
+    seed_database(&pool).await?;
     
     println!("Database initialized successfully!");
     Ok(pool)
+}
+
+async fn seed_database(pool: &SqlitePool) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    
+    // Check if admin user already exists
+    let existing_admin = sqlx::query("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+        .fetch_optional(pool)
+        .await?;
+    
+    if existing_admin.is_some() {
+        println!("Admin user already exists, skipping seed");
+        return Ok(());
+    }
+    
+    // Create the single admin user - this is the only admin account allowed
+    let admin_id = Uuid::new_v4().to_string();
+    let (password_hash, salt) = hash_password("admin123")?;
+    
+    sqlx::query(
+        "INSERT INTO users (id, username, email, password_hash, salt, role, is_active, mfa_enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&admin_id)
+    .bind("admin")
+    .bind("admin@vault.local")
+    .bind(&password_hash)
+    .bind(&salt)
+    .bind("admin")
+    .bind(true)
+    .bind(false)
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    
+    // Create default vault for admin (only admin gets a vault initially)
+    let admin_vault_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO vaults (id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&admin_vault_id)
+    .bind(&admin_id)
+    .bind("Admin Vault")
+    .bind("Primary secure storage vault for system administration")
+    .bind("personal")
+    .bind(false)
+    .bind(true)
+    .bind(true)
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    
+    println!("✅ Created default admin user:");
+    println!("   Username: admin");
+    println!("   Password: admin123");
+    println!("   Email: admin@vault.local");
+    println!("   Role: admin");
+    println!("   Vault: Admin Vault (default)");
+    println!("");
+    println!("🔐 This is the ONLY admin account. Use these credentials to sign in.");
+    
+    Ok(())
 }

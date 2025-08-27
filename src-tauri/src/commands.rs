@@ -1,6 +1,7 @@
 use crate::crypto::{hash_password, verify_password, encrypt_data, decrypt_data, serialize_tags, deserialize_tags};
 use crate::models::{CreateUserRequest, LoginRequest, AuthResponse, User, CreateVaultRequest, Vault, CreateVaultItemRequest, VaultItem};
 use crate::state::AppState;
+use crate::jwt::JwtManager;
 use chrono::Utc;
 use sqlx::Row;
 use tauri::State;
@@ -70,9 +71,14 @@ pub async fn register_user(
         updated_at: now,
     };
     
+    // Generate proper JWT token
+    let jwt_manager = JwtManager::new().map_err(|e| e.to_string())?;
+    let token = jwt_manager.generate_token(&user.id, &user.username, &user.role)
+        .map_err(|e| e.to_string())?;
+    
     Ok(AuthResponse {
         user,
-        token: "temp_token".to_string(), // TODO: Implement proper JWT
+        token,
     })
 }
 
@@ -131,9 +137,14 @@ pub async fn login_user(
                         .with_timezone(&Utc),
                 };
                 
+                // Generate proper JWT token
+                let jwt_manager = JwtManager::new().map_err(|e| e.to_string())?;
+                let token = jwt_manager.generate_token(&user.id, &user.username, &user.role)
+                    .map_err(|e| e.to_string())?;
+                
                 Ok(AuthResponse {
                     user,
-                    token: "temp_token".to_string(), // TODO: Implement proper JWT
+                    token,
                 })
             } else {
                 Err("Invalid credentials".to_string())

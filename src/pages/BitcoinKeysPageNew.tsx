@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
@@ -49,6 +50,15 @@ interface KeyGenerationForm {
   network: string;
   password: string;
   description: string;
+  vaultId: string;
+}
+
+interface Vault {
+  id: string;
+  name: string;
+  vault_type: string;
+  is_default: boolean;
+  is_system_default: boolean;
 }
 
 interface BitcoinAddressInfo {
@@ -61,7 +71,9 @@ interface BitcoinAddressInfo {
 }
 
 export const BitcoinKeysPageNew = () => {
+  const navigate = useNavigate();
   const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
+  const [vaults, setVaults] = useState<Vault[]>([]);
   const [showPrivateKey, setShowPrivateKey] = useState<Record<string, boolean>>({});
   const [decryptedPrivateKeys, setDecryptedPrivateKeys] = useState<Record<string, string>>({});
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -101,7 +113,8 @@ export const BitcoinKeysPageNew = () => {
     keyType: 'native',
     network: 'mainnet', // Always mainnet for offline wallet
     password: '',
-    description: ''
+    description: '',
+    vaultId: '' // Will be set to default vault when vaults load
   });
 
   // Generated address info

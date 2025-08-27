@@ -68,7 +68,7 @@ impl VaultService {
 
     /// Find system default vault (for offline mode)
     async fn find_system_default(&self) -> Result<Option<Vault>> {
-        let row = sqlx::query!(
+        let row = sqlx::query(
             "SELECT id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at 
              FROM vaults WHERE is_system_default = true LIMIT 1"
         )
@@ -77,23 +77,24 @@ impl VaultService {
 
         match row {
             Some(r) => {
-                let created_at = r.created_at.and_utc();
-                let updated_at = r.updated_at.and_utc();
+                use sqlx::Row;
+                let created_at = r.get::<chrono::NaiveDateTime, _>("created_at").and_utc();
+                let updated_at = r.get::<chrono::NaiveDateTime, _>("updated_at").and_utc();
                 
                 Ok(Some(Vault {
-                    id: r.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                    user_id: r.user_id,
-                    name: r.name,
-                    description: r.description,
-                    vault_type: match r.vault_type.as_str() {
+                    id: r.get::<String, _>("id"),
+                    user_id: r.get::<String, _>("user_id"),
+                    name: r.get::<String, _>("name"),
+                    description: r.get::<Option<String>, _>("description"),
+                    vault_type: match r.get::<String, _>("vault_type").as_str() {
                         "shared" => VaultType::Shared,
                         "cold_storage" => VaultType::ColdStorage,
                         "hardware" => VaultType::Hardware,
                         _ => VaultType::Personal,
                     },
-                    is_shared: r.is_shared,
-                    is_default: r.is_default,
-                    is_system_default: r.is_system_default,
+                    is_shared: r.get::<bool, _>("is_shared"),
+                    is_default: r.get::<bool, _>("is_default"),
+                    is_system_default: r.get::<bool, _>("is_system_default"),
                     created_at,
                     updated_at,
                 }))
@@ -104,33 +105,34 @@ impl VaultService {
 
     /// Find user's default vault
     async fn find_user_default(&self, user_id: &str) -> Result<Option<Vault>> {
-        let row = sqlx::query!(
+        let row = sqlx::query(
             "SELECT id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at 
-             FROM vaults WHERE user_id = ? AND is_default = true LIMIT 1",
-            user_id
+             FROM vaults WHERE user_id = ? AND is_default = true LIMIT 1"
         )
+        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         match row {
             Some(r) => {
-                let created_at = r.created_at.and_utc();
-                let updated_at = r.updated_at.and_utc();
+                use sqlx::Row;
+                let created_at = r.get::<chrono::NaiveDateTime, _>("created_at").and_utc();
+                let updated_at = r.get::<chrono::NaiveDateTime, _>("updated_at").and_utc();
                 
                 Ok(Some(Vault {
-                    id: r.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                    user_id: r.user_id,
-                    name: r.name,
-                    description: r.description,
-                    vault_type: match r.vault_type.as_str() {
+                    id: r.get::<String, _>("id"),
+                    user_id: r.get::<String, _>("user_id"),
+                    name: r.get::<String, _>("name"),
+                    description: r.get::<Option<String>, _>("description"),
+                    vault_type: match r.get::<String, _>("vault_type").as_str() {
                         "shared" => VaultType::Shared,
                         "cold_storage" => VaultType::ColdStorage,
                         "hardware" => VaultType::Hardware,
                         _ => VaultType::Personal,
                     },
-                    is_shared: r.is_shared,
-                    is_default: r.is_default,
-                    is_system_default: r.is_system_default,
+                    is_shared: r.get::<bool, _>("is_shared"),
+                    is_default: r.get::<bool, _>("is_default"),
+                    is_system_default: r.get::<bool, _>("is_system_default"),
                     created_at,
                     updated_at,
                 }))
@@ -144,20 +146,20 @@ impl VaultService {
         let vault_id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
         
-        sqlx::query!(
+        sqlx::query(
             "INSERT OR REPLACE INTO vaults (id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            vault_id,
-            "system",
-            "System Default Vault",
-            "Default vault for offline mode",
-            "personal",
-            false,
-            false,
-            true,
-            now,
-            now
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
+        .bind(&vault_id)
+        .bind("system")
+        .bind("System Default")
+        .bind("System default vault for offline mode")
+        .bind("system")
+        .bind(false)
+        .bind(false)
+        .bind(true)
+        .bind(now)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -166,33 +168,34 @@ impl VaultService {
 
     /// Get vault by ID
     async fn get_vault(&self, vault_id: &str) -> Result<Option<Vault>> {
-        let row = sqlx::query!(
+        let row = sqlx::query(
             "SELECT id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at 
-             FROM vaults WHERE id = ?",
-            vault_id
+             FROM vaults WHERE id = ?"
         )
+        .bind(vault_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         match row {
             Some(r) => {
-                let created_at = r.created_at.and_utc();
-                let updated_at = r.updated_at.and_utc();
+                use sqlx::Row;
+                let created_at = r.get::<chrono::NaiveDateTime, _>("created_at").and_utc();
+                let updated_at = r.get::<chrono::NaiveDateTime, _>("updated_at").and_utc();
                 
                 Ok(Some(Vault {
-                    id: r.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                    user_id: r.user_id,
-                    name: r.name,
-                    description: r.description,
-                    vault_type: match r.vault_type.as_str() {
+                    id: r.get::<String, _>("id"),
+                    user_id: r.get::<String, _>("user_id"),
+                    name: r.get::<String, _>("name"),
+                    description: r.get::<Option<String>, _>("description"),
+                    vault_type: match r.get::<String, _>("vault_type").as_str() {
                         "shared" => VaultType::Shared,
                         "cold_storage" => VaultType::ColdStorage,
                         "hardware" => VaultType::Hardware,
                         _ => VaultType::Personal,
                     },
-                    is_shared: r.is_shared,
-                    is_default: r.is_default,
-                    is_system_default: r.is_system_default,
+                    is_shared: r.get::<bool, _>("is_shared"),
+                    is_default: r.get::<bool, _>("is_default"),
+                    is_system_default: r.get::<bool, _>("is_system_default"),
                     created_at,
                     updated_at,
                 }))
@@ -203,33 +206,34 @@ impl VaultService {
 
     /// List all vaults for a user
     pub async fn list_vaults(&self, user_id: &str) -> Result<Vec<Vault>> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             "SELECT id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at 
-             FROM vaults WHERE user_id = ? OR is_system_default = true ORDER BY is_default DESC, created_at ASC",
-            user_id
+             FROM vaults WHERE user_id = ? OR is_system_default = true ORDER BY is_default DESC, created_at ASC"
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
 
         let mut vaults = Vec::new();
         for r in rows {
-            let created_at = r.created_at.and_utc();
-            let updated_at = r.updated_at.and_utc();
+            use sqlx::Row;
+            let created_at = r.get::<chrono::NaiveDateTime, _>("created_at").and_utc();
+            let updated_at = r.get::<chrono::NaiveDateTime, _>("updated_at").and_utc();
             
             vaults.push(Vault {
-                id: r.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                user_id: r.user_id,
-                name: r.name,
-                description: r.description,
-                vault_type: match r.vault_type.as_str() {
+                id: r.get::<String, _>("id"),
+                user_id: r.get::<String, _>("user_id"),
+                name: r.get::<String, _>("name"),
+                description: r.get::<Option<String>, _>("description"),
+                vault_type: match r.get::<String, _>("vault_type").as_str() {
                     "shared" => VaultType::Shared,
                     "cold_storage" => VaultType::ColdStorage,
                     "hardware" => VaultType::Hardware,
                     _ => VaultType::Personal,
                 },
-                is_shared: r.is_shared,
-                is_default: r.is_default,
-                is_system_default: r.is_system_default,
+                is_shared: r.get::<bool, _>("is_shared"),
+                is_default: r.get::<bool, _>("is_default"),
+                is_system_default: r.get::<bool, _>("is_system_default"),
                 created_at,
                 updated_at,
             });
@@ -251,20 +255,20 @@ impl VaultService {
             VaultType::Hardware => "hardware",
         };
 
-        sqlx::query!(
+        sqlx::query(
             "INSERT INTO vaults (id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            vault_id,
-            config.user_id,
-            config.name,
-            config.description,
-            vault_type_str,
-            false,
-            false,
-            false,
-            now_naive,
-            now_naive
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
+        .bind(&vault_id)
+        .bind(&config.user_id)
+        .bind(&config.name)
+        .bind(&config.description)
+        .bind(&vault_type_str)
+        .bind(false)
+        .bind(false)
+        .bind(false)
+        .bind(now_naive)
+        .bind(now_naive)
         .execute(&*self.pool)
         .await?;
 
@@ -285,21 +289,21 @@ impl VaultService {
     /// Set a vault as the default for a user
     pub async fn set_default_vault(&self, vault_id: &str, user_id: &str) -> Result<()> {
         // First, unset any existing default for this user
-        sqlx::query!(
-            "UPDATE vaults SET is_default = false WHERE user_id = ? AND is_default = true",
-            user_id
+        sqlx::query(
+            "UPDATE vaults SET is_default = false WHERE user_id = ? AND is_default = true"
         )
+        .bind(user_id)
         .execute(&*self.pool)
         .await?;
 
         // Set the new default
         let now = Utc::now().naive_utc();
-        sqlx::query!(
-            "UPDATE vaults SET is_default = true, updated_at = ? WHERE id = ? AND user_id = ?",
-            now,
-            vault_id,
-            user_id
+        sqlx::query(
+            "UPDATE vaults SET is_default = true, updated_at = ? WHERE id = ? AND user_id = ?"
         )
+        .bind(now)
+        .bind(vault_id)
+        .bind(user_id)
         .execute(&*self.pool)
         .await?;
 

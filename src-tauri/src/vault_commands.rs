@@ -162,16 +162,72 @@ pub async fn get_vault_items_offline(
             encrypted_data: row.get("encrypted_data"),
             metadata: row.get("metadata"),
             tags,
-            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
-                .map_err(|e| e.to_string())?
-                .with_timezone(&Utc),
-            updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))
-                .map_err(|e| e.to_string())?
-                .with_timezone(&Utc),
+            created_at: {
+                let created_str: String = row.get("created_at");
+                parse_datetime_safe(&created_str, &format!("vault item {} created_at", row.get::<String, _>("id")))?
+            },
+            updated_at: {
+                let updated_str: String = row.get("updated_at");
+                parse_datetime_safe(&updated_str, &format!("vault item {} updated_at", row.get::<String, _>("id")))?
+            },
         });
     }
     
+    info!("✅ get_vault_items_offline: Successfully returning {} items for vault {}", items.len(), vault_id);
     Ok(items)
+}
+
+#[tauri::command]
+pub async fn get_vault_item_details_offline(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<VaultItem, String> {
+    info!("🔍 get_vault_item_details_offline: Fetching details for item {}", item_id);
+    let db = &*state.db;
+    
+    let row = sqlx::query(
+        "SELECT id, vault_id, item_type, title, encrypted_data, metadata, tags, created_at, updated_at 
+         FROM vault_items WHERE id = ?"
+    )
+    .bind(&item_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        error!("❌ Failed to fetch vault item details: {}", e);
+        format!("Database error: {}", e)
+    })?;
+    
+    match row {
+        Some(row) => {
+            let tags_json: Option<String> = row.get("tags");
+            let tags = tags_json.and_then(|t| serde_json::from_str(&t).ok());
+            
+            let item = VaultItem {
+                id: item_id.clone(),
+                vault_id: row.get("vault_id"),
+                item_type: row.get("item_type"),
+                title: row.get("title"),
+                encrypted_data: row.get("encrypted_data"),
+                metadata: row.get("metadata"),
+                tags,
+                created_at: {
+                    let created_str: String = row.get("created_at");
+                    parse_datetime_safe(&created_str, &format!("vault item {} created_at", item_id))?
+                },
+                updated_at: {
+                    let updated_str: String = row.get("updated_at");
+                    parse_datetime_safe(&updated_str, &format!("vault item {} updated_at", item_id))?
+                },
+            };
+            
+            info!("✅ get_vault_item_details_offline: Successfully retrieved item {}", item_id);
+            Ok(item)
+        }
+        None => {
+            error!("❌ Vault item not found: {}", item_id);
+            Err(format!("Vault item not found: {}", item_id))
+        }
+    }
 }
 
 #[tauri::command]
@@ -179,48 +235,65 @@ pub async fn create_vault_item_offline(
     state: State<'_, AppState>,
     request: CreateVaultItemRequest,
 ) -> Result<VaultItem, String> {
+    info!("🔧 create_vault_item_offline: Creating new vault item for vault {}", request.vault_id);
     let db = &*state.db;
     
     let item_id = Uuid::new_v4().to_string();
-    let now = Utc::now();
-    let created_at = now.to_rfc3339();
-    let updated_at = created_at.clone();
+    let now = Utc::now().to_rfc3339();
     
-    // Simple base64 encoding for now
-    let encrypted_data = base64::encode(&request.data);
+    // For offline mode, we'll use a default user_id
+    let user_id = DEFAULT_USER_ID;
     
-    let tags_json = match &request.tags {
-        Some(tags) => serde_json::to_string(tags).unwrap_or_default(),
-        None => String::new(),
-    };
+    debug!("📝 Creating vault item with ID: {}", item_id);
+    
+    // Verify vault exists
+    let vault_exists = sqlx::query("SELECT id FROM vaults WHERE id = ?")
+        .bind(&request.vault_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to verify vault existence: {}", e);
+            format!("Database error: {}", e)
+        })?;
+    
+    if vault_exists.is_none() {
+        error!("❌ Vault not found: {}", request.vault_id);
+        return Err(format!("Vault not found: {}", request.vault_id));
+    }
     
     sqlx::query(
-        "INSERT INTO vault_items (id, vault_id, item_type, title, encrypted_data, metadata, tags, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO vault_items (id, user_id, vault_id, title, item_type, encrypted_data, metadata, tags, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&item_id)
+    .bind(user_id)
     .bind(&request.vault_id)
-    .bind(&request.item_type)
     .bind(&request.title)
-    .bind(&encrypted_data)
+    .bind(&request.item_type)
+    .bind(&request.data)
     .bind(&request.metadata)
-    .bind(&tags_json)
-    .bind(&created_at)
-    .bind(&updated_at)
+    .bind(request.tags.as_ref().map(|t| serde_json::to_string(t).unwrap_or_default()))
+    .bind(&now)
+    .bind(&now)
     .execute(db)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        error!("❌ Failed to create vault item: {}", e);
+        format!("Database error: {}", e)
+    })?;
+    
+    info!("✅ Successfully created vault item: {} in vault {}", item_id, request.vault_id);
     
     Ok(VaultItem {
         id: item_id,
         vault_id: request.vault_id,
         item_type: request.item_type,
         title: request.title,
-        encrypted_data,
+        encrypted_data: request.data,
         metadata: request.metadata,
         tags: request.tags,
-        created_at: now,
-        updated_at: now,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
     })
 }
 

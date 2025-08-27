@@ -1,6 +1,5 @@
 pub mod logging;
 mod database;
-mod database_new;
 mod state;
 mod vault_service;
 mod models;
@@ -37,7 +36,7 @@ use crate::bitcoin_key_commands::{decrypt_private_key, get_bitcoin_key_details, 
 use crate::commands::{create_vault, get_user_vaults, create_vault_item, get_vault_items, delete_vault, delete_vault_item, decrypt_vault_item};
 use crate::vault_commands::{get_user_vaults_offline, create_vault_offline, get_vault_items_offline, create_vault_item_offline, delete_vault_offline, delete_vault_item_offline, decrypt_vault_item_offline};
 use crate::logging::init_logger;
-use crate::database_new::initialize_database;
+use crate::database::initialize_database_with_app_handle;
 use crate::state::AppState;
 // use crate::database::Database;
 use crate::vault_service::VaultService;
@@ -54,9 +53,9 @@ pub fn run() {
             
             let handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
-                match initialize_database().await {
+                match initialize_database_with_app_handle(&handle).await {
                     Ok(db) => {
-                        let db_arc = Arc::new(db);
+                        let db_arc: Arc<sqlx::SqlitePool> = Arc::new(db);
                         let vault_service = Arc::new(VaultService::new(db_arc.clone()));
                         
                         handle.manage(AppState {
@@ -67,6 +66,7 @@ pub fn run() {
                     }
                     Err(e) => {
                         eprintln!("Failed to initialize database: {}", e);
+                        std::process::exit(1);
                     }
                 }
             });
@@ -121,6 +121,7 @@ pub fn run() {
             vault_commands::get_user_vaults_offline,
             vault_commands::create_vault_offline,
             vault_commands::get_vault_items_offline,
+            vault_commands::get_vault_item_details_offline,
             vault_commands::create_vault_item_offline,
             vault_commands::delete_vault_offline,
             vault_commands::delete_vault_item_offline,

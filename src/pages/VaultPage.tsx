@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,6 +55,7 @@ interface CreateVaultItemRequest {
 }
 
 export default function VaultPage() {
+  const navigate = useNavigate();
   const [vaults, setVaults] = useState<Vault[]>([]);
   const [selectedVault, setSelectedVault] = useState<Vault | null>(null);
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
@@ -62,7 +64,7 @@ export default function VaultPage() {
   const [success, setSuccess] = useState('');
   const [showCreateVault, setShowCreateVault] = useState(false);
   const [showCreateItem, setShowCreateItem] = useState(false);
-  const [showItemData, setShowItemData] = useState<{ [key: string]: boolean }>({});
+  const [showItemData, setShowItemData] = useState<Record<string, boolean>>({});
 
   // Create vault form state
   const [newVault, setNewVault] = useState<CreateVaultRequest>({
@@ -204,8 +206,8 @@ export default function VaultPage() {
   };
 
   const handleSelectVault = async (vault: Vault) => {
-    setSelectedVault(vault);
-    await loadVaultItems(vault.id);
+    // Navigate to vault details page instead of loading items inline
+    navigate(`/vault/${vault.id}`);
   };
 
   const toggleItemDataVisibility = async (itemId: string) => {

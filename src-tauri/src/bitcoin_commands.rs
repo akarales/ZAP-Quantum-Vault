@@ -1,14 +1,11 @@
-use tauri::State;
-use crate::state::AppState;
-use anyhow::Result;
-use serde_json;
-use base64::{Engine as _, engine::general_purpose};
-
-use crate::bitcoin_keys::{SimpleBitcoinKeyGenerator, BitcoinKeyType, BitcoinNetwork};
-// use crate::database::Database; // Temporarily disabled
-use crate::logging::BitcoinKeyEvent;
-use crate::{log_error, log_info, log_warn, log_bitcoin_event};
 use std::time::Instant;
+use tauri::State;
+use sqlx::{SqlitePool, Row};
+use base64::{Engine as _, engine::general_purpose};
+use crate::AppState;
+use crate::bitcoin_keys::{SimpleBitcoinKeyGenerator, BitcoinKeyType, BitcoinNetwork};
+use crate::{log_error, log_info, log_bitcoin_event};
+use crate::logging::BitcoinKeyEvent;
 
 #[tauri::command]
 pub async fn generate_bitcoin_key(
@@ -120,21 +117,21 @@ pub async fn generate_bitcoin_key(
         hex::encode(&bitcoin_key.public_key[..std::cmp::min(16, bitcoin_key.public_key.len())])
     ));
     
-    match sqlx::query!(
-        "INSERT INTO bitcoin_keys (id, vault_id, key_type, network, encrypted_private_key, public_key, address, derivation_path, entropy_source, quantum_enhanced, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        bitcoin_key.id,
-        bitcoin_key.vault_id,
-        key_type_str,
-        network_str,
-        bitcoin_key.encrypted_private_key,
-        bitcoin_key.public_key,
-        bitcoin_key.address,
-        bitcoin_key.derivation_path,
-        entropy_source_str,
-        bitcoin_key.quantum_enhanced,
-        created_at_str,
-        bitcoin_key.is_active
+    match sqlx::query(
+        "INSERT INTO bitcoin_keys (id, vault_id, key_type, network, encrypted_private_key, public_key, address, derivation_path, entropy_source, quantum_enhanced, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
+    .bind(&bitcoin_key.id)
+    .bind(&bitcoin_key.vault_id)
+    .bind(&key_type_str)
+    .bind(&network_str)
+    .bind(&bitcoin_key.encrypted_private_key)
+    .bind(&bitcoin_key.public_key)
+    .bind(&bitcoin_key.address)
+    .bind(&bitcoin_key.derivation_path)
+    .bind(&entropy_source_str)
+    .bind(bitcoin_key.quantum_enhanced)
+    .bind(&created_at_str)
+    .bind(bitcoin_key.is_active)
     .execute(db.as_ref())
     .await {
         Ok(_) => {
@@ -149,17 +146,17 @@ pub async fn generate_bitcoin_key(
     // Also insert metadata record
     let label = format!("{} Key", key_type_str.to_uppercase());
     let description = format!("Quantum-enhanced {} key for {}", key_type_str, network_str);
-    match sqlx::query!(
-        "INSERT INTO bitcoin_key_metadata (key_id, label, description) VALUES (?, ?, ?)",
-        bitcoin_key.id,
-        label,
-        description
+    match sqlx::query(
+        "INSERT INTO bitcoin_key_metadata (key_id, label, description) VALUES (?, ?, ?)"
     )
+    .bind(&bitcoin_key.id)
+    .bind(&label)
+    .bind(&description)
     .execute(db.as_ref())
     .await {
         Ok(_) => {},
         Err(e) => {
-            log_warn!("bitcoin_commands", &format!("Failed to store Bitcoin key metadata: {}", e));
+            log_error!("bitcoin_commands", &format!("Failed to store Bitcoin key metadata: {}", e));
         }
     }
     
@@ -201,42 +198,42 @@ pub async fn list_bitcoin_keys(
 ) -> Result<Vec<serde_json::Value>, String> {
     let db = &app_state.db;
     
-    match sqlx::query!(
-        "SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.address, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id WHERE bk.vault_id = ? AND bk.is_active = 1 ORDER BY bk.created_at DESC",
-        vault_id
-    )
-    .fetch_all(db.as_ref())
-    .await {
+    match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.address, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id WHERE bk.vault_id = ? AND bk.is_active = 1 ORDER BY bk.created_at DESC")
+        .bind(&vault_id)
+        .fetch_all(db.as_ref())
+        .await {
         Ok(rows) => {
             let keys: Vec<serde_json::Value> = rows.into_iter().map(|row| {
                 // Log public key details for each row
-                let public_key_base64 = general_purpose::STANDARD.encode(&row.public_key);
+                let public_key: Vec<u8> = row.get("public_key");
+                let address: String = row.get("address");
+                let public_key_base64 = general_purpose::STANDARD.encode(&public_key);
                 log_info!("bitcoin_commands", &format!("Retrieved key - Address: {}, Public key length: {}, Base64 length: {}, Base64 preview: {}", 
-                    row.address, 
-                    row.public_key.len(),
+                    address, 
+                    public_key.len(),
                     public_key_base64.len(),
                     &public_key_base64[..std::cmp::min(32, public_key_base64.len())]
                 ));
                 
                 serde_json::json!({
-                    "id": row.id,
-                    "vaultId": row.vault_id,
-                    "keyType": row.key_type,
-                    "network": row.network,
-                    "address": row.address,
+                    "id": row.get::<String, _>("id"),
+                    "vaultId": row.get::<Option<String>, _>("vault_id"),
+                    "keyType": row.get::<String, _>("key_type"),
+                    "network": row.get::<String, _>("network"),
+                    "address": address,
                     "publicKey": public_key_base64,
-                    "encryptedPrivateKey": general_purpose::STANDARD.encode(&row.encrypted_private_key),
-                    "derivationPath": row.derivation_path,
-                    "entropySource": row.entropy_source,
-                    "quantumEnhanced": row.quantum_enhanced,
-                    "createdAt": row.created_at,
-                    "lastUsed": row.last_used,
-                    "isActive": row.is_active,
-                    "label": row.label,
-                    "description": row.description,
-                    "tags": row.tags,
-                    "balanceSatoshis": row.balance_satoshis.unwrap_or(0),
-                    "transactionCount": row.transaction_count.unwrap_or(0)
+                    "encryptedPrivateKey": general_purpose::STANDARD.encode(&row.get::<Vec<u8>, _>("encrypted_private_key")),
+                    "derivationPath": row.get::<Option<String>, _>("derivation_path"),
+                    "entropySource": row.get::<Option<String>, _>("entropy_source"),
+                    "quantumEnhanced": row.get::<bool, _>("quantum_enhanced"),
+                    "createdAt": row.get::<String, _>("created_at"),
+                    "lastUsed": row.get::<Option<String>, _>("last_used"),
+                    "isActive": row.get::<bool, _>("is_active"),
+                    "label": row.get::<Option<String>, _>("label"),
+                    "description": row.get::<Option<String>, _>("description"),
+                    "tags": row.get::<Option<String>, _>("tags"),
+                    "balanceSatoshis": row.get::<Option<i64>, _>("balance_satoshis").unwrap_or(0),
+                    "transactionCount": row.get::<Option<i32>, _>("transaction_count").unwrap_or(0)
                 })
             }).collect();
             
