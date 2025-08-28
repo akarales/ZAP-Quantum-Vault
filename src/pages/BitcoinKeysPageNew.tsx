@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
@@ -20,7 +19,8 @@ import {
   Clock,
   TrendingUp,
   Activity,
-  Shuffle
+  Shuffle,
+  Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -71,9 +71,7 @@ interface BitcoinAddressInfo {
 }
 
 export const BitcoinKeysPageNew = () => {
-  const navigate = useNavigate();
   const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
-  const [vaults, setVaults] = useState<Vault[]>([]);
   const [showPrivateKey, setShowPrivateKey] = useState<Record<string, boolean>>({});
   const [decryptedPrivateKeys, setDecryptedPrivateKeys] = useState<Record<string, string>>({});
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -97,6 +95,31 @@ export const BitcoinKeysPageNew = () => {
       delete newKeys[keyId];
       return newKeys;
     });
+  };
+
+  const handleDeleteKey = async (keyId: string) => {
+    if (!confirm('Are you sure you want to delete this Bitcoin key? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await invoke('delete_bitcoin_key', { keyId });
+      setBitcoinKeys(prev => prev.filter(key => key.id !== keyId));
+      setSelectedKeys(prev => prev.filter(id => id !== keyId));
+      
+      // Clear any decrypted private keys for this key
+      setDecryptedPrivateKeys(prev => {
+        const newKeys = { ...prev };
+        delete newKeys[keyId];
+        return newKeys;
+      });
+      setShowPrivateKey(prev => ({ ...prev, [keyId]: false }));
+      
+      alert('Bitcoin key deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete Bitcoin key:', error);
+      alert('Failed to delete Bitcoin key. Please try again.');
+    }
   };
 
   const copyPrivateKey = (privateKey: string) => {
@@ -685,7 +708,7 @@ export const BitcoinKeysPageNew = () => {
                                   <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
                                     <span className="flex items-center gap-1">
                                       <Key className="h-3 w-3" />
-                                      {key.key_type}
+                                      {key.keyType}
                                     </span>
                                     <span className="flex items-center gap-1">
                                       <Wallet className="h-3 w-3" />
@@ -758,7 +781,7 @@ export const BitcoinKeysPageNew = () => {
                                   )}
                                 </div>
                                 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-3 gap-4">
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -767,6 +790,15 @@ export const BitcoinKeysPageNew = () => {
                                   >
                                     <Copy className="h-4 w-4 mr-1" />
                                     Copy Address
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDeleteKey(key.id)}
+                                    className="text-xs h-7"
+                                  >
+                                    <Trash2 className="h-3 w-3 mr-1" />
+                                    Delete
                                   </Button>
                                 </div>
 
@@ -790,7 +822,7 @@ export const BitcoinKeysPageNew = () => {
                                   <div>
                                     <Label className="text-sm font-medium">Derivation Path</Label>
                                     <code className="block bg-muted p-2 rounded text-sm font-mono mt-1">
-                                      {key.derivation_path}
+                                      {key.derivationPath}
                                     </code>
                                   </div>
                                 )}
@@ -800,16 +832,16 @@ export const BitcoinKeysPageNew = () => {
                               <div className="flex items-center gap-6 text-sm text-muted-foreground pt-2 border-t">
                                 <div className="flex items-center gap-1">
                                   <Clock className="h-4 w-4" />
-                                  Created: {new Date(key.created_at).toLocaleDateString()}
+                                  Created: {new Date(key.createdAt).toLocaleDateString()}
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <Shield className="h-4 w-4" />
-                                  Entropy: {key.entropy_source}
+                                  Entropy: {key.entropySource}
                                 </div>
                                 {key.lastUsed && (
                                   <div className="flex items-center gap-1">
                                     <TrendingUp className="h-4 w-4" />
-                                    Last used: {new Date(key.last_used).toLocaleDateString()}
+                                    Last used: {new Date(key.lastUsed).toLocaleDateString()}
                                   </div>
                                 )}
                               </div>
