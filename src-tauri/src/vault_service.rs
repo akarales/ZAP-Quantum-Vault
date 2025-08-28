@@ -52,18 +52,13 @@ impl VaultService {
 
     /// Ensures a default vault exists and returns its ID
     pub async fn ensure_default_vault(&self) -> Result<String> {
-        // First check for system default vault
-        if let Some(vault) = self.find_system_default().await? {
+        // Check for any existing vault (admin vault should exist)
+        if let Some(vault) = self.find_any_vault().await? {
             return Ok(vault.id);
         }
 
-        // Check for user default vault
-        if let Some(vault) = self.find_user_default("default_user").await? {
-            return Ok(vault.id);
-        }
-
-        // Create system default vault
-        self.create_system_default().await
+        // This should not happen in normal operation since admin vault is created during seed
+        Err(anyhow::anyhow!("No vault found - database may not be properly initialized"))
     }
 
     /// Find system default vault (for offline mode)
@@ -71,6 +66,43 @@ impl VaultService {
         let row = sqlx::query(
             "SELECT id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at 
              FROM vaults WHERE is_system_default = true LIMIT 1"
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        match row {
+            Some(r) => {
+                use sqlx::Row;
+                let created_at = r.get::<chrono::NaiveDateTime, _>("created_at").and_utc();
+                let updated_at = r.get::<chrono::NaiveDateTime, _>("updated_at").and_utc();
+                
+                Ok(Some(Vault {
+                    id: r.get::<String, _>("id"),
+                    user_id: r.get::<String, _>("user_id"),
+                    name: r.get::<String, _>("name"),
+                    description: r.get::<Option<String>, _>("description"),
+                    vault_type: match r.get::<String, _>("vault_type").as_str() {
+                        "shared" => VaultType::Shared,
+                        "cold_storage" => VaultType::ColdStorage,
+                        "hardware" => VaultType::Hardware,
+                        _ => VaultType::Personal,
+                    },
+                    is_shared: r.get::<bool, _>("is_shared"),
+                    is_default: r.get::<bool, _>("is_default"),
+                    is_system_default: r.get::<bool, _>("is_system_default"),
+                    created_at,
+                    updated_at,
+                }))
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Find any existing vault
+    async fn find_any_vault(&self) -> Result<Option<Vault>> {
+        let row = sqlx::query(
+            "SELECT id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at 
+             FROM vaults ORDER BY is_default DESC, created_at ASC LIMIT 1"
         )
         .fetch_optional(&*self.pool)
         .await?;
@@ -152,7 +184,7 @@ impl VaultService {
         )
         .bind(&vault_id)
         .bind("system")
-        .bind("System Default")
+        .bind("system_default")
         .bind("System default vault for offline mode")
         .bind("system")
         .bind(false)
@@ -313,5 +345,49 @@ impl VaultService {
     /// Get vault by ID (public wrapper)
     pub async fn get_vault_by_id(&self, vault_id: &str) -> Result<Option<Vault>> {
         self.get_vault(vault_id).await
+    }
+
+    /// Get vault by name or ID
+    pub async fn get_vault_by_name_or_id(&self, identifier: &str) -> Result<Option<Vault>> {
+        // First try by ID
+        if let Some(vault) = self.get_vault(identifier).await? {
+            return Ok(Some(vault));
+        }
+
+        // Then try by name
+        let row = sqlx::query(
+            "SELECT id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at 
+             FROM vaults WHERE name = ?"
+        )
+        .bind(identifier)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        match row {
+            Some(r) => {
+                use sqlx::Row;
+                let created_at = r.get::<chrono::NaiveDateTime, _>("created_at").and_utc();
+                let updated_at = r.get::<chrono::NaiveDateTime, _>("updated_at").and_utc();
+                
+                Ok(Some(Vault {
+                    id: r.get::<String, _>("id"),
+                    user_id: r.get::<String, _>("user_id"),
+                    name: r.get::<String, _>("name"),
+                    description: r.get::<Option<String>, _>("description"),
+                    vault_type: match r.get::<String, _>("vault_type").as_str() {
+                        "shared" => VaultType::Shared,
+                        "cold_storage" => VaultType::ColdStorage,
+                        "hardware" => VaultType::Hardware,
+                        _ => VaultType::Personal,
+                    },
+                    is_shared: r.get::<bool, _>("is_shared"),
+                    is_default: r.get::<bool, _>("is_default"),
+                    is_system_default: r.get::<bool, _>("is_system_default"),
+                    created_at,
+                    updated_at,
+                }))
+            },
+            None => Ok(None),
+        }
     }
 }

@@ -245,12 +245,12 @@ async fn seed_database(pool: &SqlitePool) -> Result<()> {
     )
     .bind(&admin_vault_id)
     .bind(&admin_id)
-    .bind("Admin Vault")
-    .bind("Primary secure storage vault for system administration")
+    .bind("default_vault")
+    .bind("Default vault for secure storage")
     .bind("personal")
     .bind(false)
     .bind(true)
-    .bind(true)
+    .bind(false)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -261,7 +261,7 @@ async fn seed_database(pool: &SqlitePool) -> Result<()> {
     println!("   Password: admin123");
     println!("   Email: admin@vault.local");
     println!("   Role: admin");
-    println!("   Vault: Admin Vault (default)");
+    println!("   Vault: default_vault (default)");
     println!("");
     println!("🔐 This is the ONLY admin account. Use these credentials to sign in.");
     

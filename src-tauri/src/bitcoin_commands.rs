@@ -21,9 +21,9 @@ pub async fn generate_bitcoin_key(
     // Ensure vault exists or use default
     let effective_vault_id = match vault_id {
         Some(id) => {
-            // Verify vault exists
-            match app_state.vault_service.get_vault_by_id(&id).await {
-                Ok(Some(_)) => id,
+            // Verify vault exists (try by name or ID)
+            match app_state.vault_service.get_vault_by_name_or_id(&id).await {
+                Ok(Some(vault)) => vault.id, // Use the actual vault ID
                 Ok(None) => return Err(format!("Vault '{}' does not exist", id)),
                 Err(e) => return Err(format!("Failed to verify vault: {}", e)),
             }
@@ -111,8 +111,9 @@ pub async fn generate_bitcoin_key(
     let created_at_str = bitcoin_key.created_at.to_rfc3339();
     
     // Log public key details before storing
-    log_info!("bitcoin_commands", &format!("Storing Bitcoin key - Address: {}, Public key length: {}, Public key hex: {}", 
+    log_info!("bitcoin_commands", &format!("Storing Bitcoin key - Address: {}, Vault ID: {}, Public key length: {}, Public key hex: {}", 
         bitcoin_key.address, 
+        effective_vault_id,
         bitcoin_key.public_key.len(),
         hex::encode(&bitcoin_key.public_key[..std::cmp::min(16, bitcoin_key.public_key.len())])
     ));
@@ -121,7 +122,7 @@ pub async fn generate_bitcoin_key(
         "INSERT INTO bitcoin_keys (id, vault_id, key_type, network, encrypted_private_key, public_key, address, derivation_path, entropy_source, quantum_enhanced, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&bitcoin_key.id)
-    .bind(&bitcoin_key.vault_id)
+    .bind(&effective_vault_id)
     .bind(&key_type_str)
     .bind(&network_str)
     .bind(&bitcoin_key.encrypted_private_key)
@@ -198,8 +199,27 @@ pub async fn list_bitcoin_keys(
 ) -> Result<Vec<serde_json::Value>, String> {
     let db = &app_state.db;
     
+    // Resolve vault ID (try by name or ID, similar to generate_bitcoin_key)
+    let effective_vault_id = match app_state.vault_service.get_vault_by_name_or_id(&vault_id).await {
+        Ok(Some(vault)) => {
+            log_info!("bitcoin_commands", &format!("Resolved vault '{}' to UUID: {}", vault_id, vault.id));
+            vault.id
+        },
+        Ok(None) => {
+            log_info!("bitcoin_commands", &format!("Vault '{}' not found, using ensure_default_vault", vault_id));
+            match app_state.vault_service.ensure_default_vault().await {
+                Ok(default_vault_id) => {
+                    log_info!("bitcoin_commands", &format!("Using default vault: {}", default_vault_id));
+                    default_vault_id
+                },
+                Err(e) => return Err(format!("Failed to ensure default vault: {}", e)),
+            }
+        },
+        Err(e) => return Err(format!("Failed to resolve vault: {}", e)),
+    };
+    
     match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.address, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id WHERE bk.vault_id = ? AND bk.is_active = 1 ORDER BY bk.created_at DESC")
-        .bind(&vault_id)
+        .bind(&effective_vault_id)
         .fetch_all(db.as_ref())
         .await {
         Ok(rows) => {
@@ -237,7 +257,7 @@ pub async fn list_bitcoin_keys(
                 })
             }).collect();
             
-            log_info!("bitcoin_commands", &format!("Retrieved {} Bitcoin keys for vault {}", keys.len(), vault_id));
+            log_info!("bitcoin_commands", &format!("Retrieved {} Bitcoin keys for vault {} (resolved to: {}, query used vault_id: {})", keys.len(), vault_id, effective_vault_id, effective_vault_id));
             Ok(keys)
         },
         Err(e) => {

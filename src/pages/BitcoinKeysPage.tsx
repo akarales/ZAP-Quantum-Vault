@@ -27,7 +27,8 @@ import {
   Usb,
   RefreshCw,
   Lock,
-  Unlock
+  Unlock,
+  Trash2
 } from 'lucide-react';
 
 interface BitcoinKey {
@@ -91,9 +92,11 @@ export const BitcoinKeysPage = () => {
   
   // Key generation form state
   const [keyType, setKeyType] = useState('native');
-  const [network, setNetwork] = useState('testnet');
+  const [network, setNetwork] = useState('mainnet');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedVaultId, setSelectedVaultId] = useState('default_vault');
+  const [availableVaults, setAvailableVaults] = useState<any[]>([]);
   
   // HD wallet form state
   const [walletName, setWalletName] = useState('');
@@ -108,7 +111,15 @@ export const BitcoinKeysPage = () => {
   useEffect(() => {
     loadBitcoinKeys();
     loadHdWallets();
+    loadVaults();
   }, []);
+
+  // Reload keys when selected vault changes
+  useEffect(() => {
+    if (selectedVaultId) {
+      loadBitcoinKeys();
+    }
+  }, [selectedVaultId]);
 
   const detectUsbDrives = async () => {
     setDetectingDrives(true);
@@ -130,8 +141,11 @@ export const BitcoinKeysPage = () => {
 
   const loadBitcoinKeys = async () => {
     try {
-      const keys = await invoke<BitcoinKey[]>('list_bitcoin_keys', { vaultId: currentVaultId });
+      // Use the selected vault ID for listing keys
+      const vaultIdToUse = selectedVaultId || currentVaultId;
+      const keys = await invoke<BitcoinKey[]>('list_bitcoin_keys', { vaultId: vaultIdToUse });
       setBitcoinKeys(keys);
+      console.log(`Loaded ${keys.length} Bitcoin keys from vault: ${vaultIdToUse}`);
     } catch (err) {
       setError(`Failed to load Bitcoin keys: ${err}`);
     }
@@ -146,6 +160,20 @@ export const BitcoinKeysPage = () => {
     }
   };
 
+  const loadVaults = async () => {
+    try {
+      const vaults = await invoke<any[]>('list_user_vaults', { userId: 'admin' });
+      setAvailableVaults(vaults);
+      // Set default vault as selected if available
+      const defaultVault = vaults.find(v => v.name === 'default_vault' || v.isDefault);
+      if (defaultVault) {
+        setSelectedVaultId(defaultVault.id);
+      }
+    } catch (err) {
+      console.error('Failed to load vaults:', err);
+    }
+  };
+
   const handleGenerateKey = async () => {
     if (!password) {
       setError('Password is required');
@@ -157,7 +185,7 @@ export const BitcoinKeysPage = () => {
     
     try {
       const keyId = await invoke<string>('generate_bitcoin_key', {
-        vaultId: currentVaultId,
+        vaultId: selectedVaultId,
         keyType,
         network,
         password
@@ -165,6 +193,7 @@ export const BitcoinKeysPage = () => {
       
       setSuccess(`Bitcoin key generated successfully! ID: ${keyId}`);
       setPassword('');
+      // Refresh keys from the vault where the key was generated
       await loadBitcoinKeys();
     } catch (err) {
       setError(`Failed to generate key: ${err}`);
@@ -280,6 +309,25 @@ export const BitcoinKeysPage = () => {
     navigator.clipboard.writeText(text);
     setSuccess('Copied to clipboard!');
     setTimeout(() => setSuccess(''), 2000);
+  };
+
+  const handleDeleteKey = async (keyId: string) => {
+    if (!confirm('Are you sure you want to delete this Bitcoin key? This action cannot be undone.')) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    
+    try {
+      await invoke('delete_bitcoin_key', { keyId });
+      setSuccess('Bitcoin key deleted successfully!');
+      await loadBitcoinKeys();
+    } catch (err) {
+      setError(`Failed to delete key: ${err}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const formatSatoshis = (satoshis: number) => {
@@ -446,6 +494,16 @@ export const BitcoinKeysPage = () => {
                               </div>
                             </div>
                           </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDeleteKey(key.id)}
+                            disabled={loading}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     </Card>
@@ -634,6 +692,22 @@ export const BitcoinKeysPage = () => {
                       <SelectItem value="mainnet">Mainnet</SelectItem>
                       <SelectItem value="testnet">Testnet</SelectItem>
                       <SelectItem value="regtest">Regtest</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="vault">Vault</Label>
+                  <Select value={selectedVaultId} onValueChange={setSelectedVaultId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select vault" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableVaults.map((vault) => (
+                        <SelectItem key={vault.id} value={vault.id}>
+                          {vault.name} {vault.isDefault && '(Default)'}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

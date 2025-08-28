@@ -20,6 +20,7 @@ import {
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [userCount, setUserCount] = useState<number | null>(null);
+  const [bitcoinKeyCount, setBitcoinKeyCount] = useState<number | null>(null);
   const [, setLoading] = useState(false);
 
   const getUserCount = async () => {
@@ -34,8 +35,19 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
+  const getBitcoinKeyCount = async () => {
+    try {
+      const keys = await invoke('list_bitcoin_keys', { vaultId: 'default_vault' });
+      setBitcoinKeyCount(Array.isArray(keys) ? keys.length : 0);
+    } catch (error) {
+      console.error('Failed to get Bitcoin key count:', error);
+      setBitcoinKeyCount(0);
+    }
+  };
+
   useEffect(() => {
     getUserCount();
+    getBitcoinKeyCount();
   }, []);
 
   const stats = [
@@ -49,10 +61,10 @@ export const DashboardPage: React.FC = () => {
     },
     {
       title: 'Active Keys',
-      value: '0',
+      value: bitcoinKeyCount !== null ? bitcoinKeyCount.toString() : 'Loading...',
       icon: Key,
       description: 'Cryptographic keys managed',
-      trend: 'N/A',
+      trend: '+2%',
       color: 'text-green-600'
     },
     {

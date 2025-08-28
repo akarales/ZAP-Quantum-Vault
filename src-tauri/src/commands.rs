@@ -1,5 +1,6 @@
 use crate::crypto::{hash_password, verify_password, encrypt_data, decrypt_data, serialize_tags, deserialize_tags};
-use crate::models::{CreateUserRequest, LoginRequest, AuthResponse, User, CreateVaultRequest, Vault, CreateVaultItemRequest, VaultItem};
+use crate::models::{CreateUserRequest, LoginRequest, AuthResponse, User, CreateVaultRequest, CreateVaultItemRequest, VaultItem};
+use crate::vault_service::{Vault, VaultType};
 use crate::state::AppState;
 use crate::jwt::JwtManager;
 use chrono::Utc;
@@ -414,7 +415,12 @@ pub async fn create_vault(
         user_id,
         name: request.name,
         description: request.description,
-        vault_type: request.vault_type,
+        vault_type: match request.vault_type.as_str() {
+            "shared" => VaultType::Shared,
+            "cold_storage" => VaultType::ColdStorage,
+            "hardware" => VaultType::Hardware,
+            _ => VaultType::Personal,
+        },
         is_shared: false,
         is_default: false,
         is_system_default: false,
@@ -446,7 +452,12 @@ pub async fn get_user_vaults(
             user_id: row.get("user_id"),
             name: row.get("name"),
             description: row.get("description"),
-            vault_type: row.get("vault_type"),
+            vault_type: match row.get::<String, _>("vault_type").as_str() {
+                "shared" => VaultType::Shared,
+                "cold_storage" => VaultType::ColdStorage,
+                "hardware" => VaultType::Hardware,
+                _ => VaultType::Personal,
+            },
             is_shared: row.get("is_shared"),
             is_default: false,
             is_system_default: false,
@@ -459,6 +470,16 @@ pub async fn get_user_vaults(
         });
     }
     
+    Ok(vaults)
+}
+
+#[tauri::command]
+pub async fn list_user_vaults(
+    state: State<'_, AppState>,
+    user_id: String,
+) -> Result<Vec<Vault>, String> {
+    let vaults = state.vault_service.list_vaults(&user_id).await
+        .map_err(|e| e.to_string())?;
     Ok(vaults)
 }
 

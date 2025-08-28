@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowLeft, Key, Plus, Eye, Edit, Trash2, Copy, Clock, Tag } from 'lucide-react';
+import { ArrowLeft, Key, Eye, Edit, Trash2, Copy, Clock, Tag, Bitcoin, Shield } from 'lucide-react';
 
 interface Vault {
   id: string;
@@ -28,11 +28,25 @@ interface VaultItem {
   updated_at: string;
 }
 
+interface BitcoinKey {
+  id: string;
+  keyType: string;
+  network: string;
+  address: string;
+  derivationPath?: string;
+  entropySource: string;
+  quantumEnhanced: boolean;
+  createdAt: string;
+  balanceSatoshis: number;
+  transactionCount: number;
+}
+
 const VaultDetailsPage: React.FC = () => {
   const { vaultId } = useParams<{ vaultId: string }>();
   const navigate = useNavigate();
   const [vault, setVault] = useState<Vault | null>(null);
   const [items, setItems] = useState<VaultItem[]>([]);
+  const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,6 +79,17 @@ const VaultDetailsPage: React.FC = () => {
       });
       
       setItems(vaultItems);
+
+      // Load Bitcoin keys for this vault
+      try {
+        const keys = await invoke<BitcoinKey[]>('list_bitcoin_keys', {
+          vaultId: vaultId
+        });
+        setBitcoinKeys(keys);
+      } catch (keyError) {
+        console.error('Failed to load Bitcoin keys:', keyError);
+        setBitcoinKeys([]);
+      }
     } catch (err) {
       console.error('Failed to load vault details:', err);
       setError(err as string);
@@ -179,13 +204,6 @@ const VaultDetailsPage: React.FC = () => {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => navigate(`/create-key?vault=${vault.id}`)}
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Key</span>
-          </button>
         </div>
 
         {/* Vault Info */}
@@ -198,7 +216,8 @@ const VaultDetailsPage: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold mb-2">Statistics</h3>
               <div className="space-y-1 text-gray-300">
-                <div>Total Keys: {items.length}</div>
+                <div>Vault Items: {items.length}</div>
+                <div>Bitcoin Keys: {bitcoinKeys.length}</div>
                 <div>Created: {formatDate(vault.created_at)}</div>
                 <div>Updated: {formatDate(vault.updated_at)}</div>
               </div>
@@ -239,30 +258,96 @@ const VaultDetailsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Keys List */}
+        {/* Keys Section */}
         <div className="bg-gray-800 rounded-lg overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-700">
             <h2 className="text-xl font-semibold flex items-center space-x-2">
               <Key className="w-5 h-5" />
-              <span>Keys in this Vault</span>
+              <span>Keys</span>
             </h2>
           </div>
 
-          {filteredItems.length === 0 ? (
-            <div className="p-8 text-center text-gray-400">
-              {items.length === 0 ? (
-                <div>
-                  <Key className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <div className="text-lg mb-2">No keys in this vault</div>
-                  <div className="text-sm">Add your first key to get started</div>
+          {/* Bitcoin Keys Subsection */}
+          {bitcoinKeys.length > 0 && (
+            <div className="border-b border-gray-700 last:border-b-0">
+              <div className="px-6 py-3 bg-gray-750 border-b border-gray-700">
+                <h3 className="text-lg font-medium flex items-center space-x-2">
+                  <Bitcoin className="w-4 h-4 text-orange-400" />
+                  <span>Bitcoin Keys ({bitcoinKeys.length})</span>
+                </h3>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {bitcoinKeys.map((key) => (
+                  <div
+                    key={key.id}
+                    className="px-6 py-4 border-b border-gray-700 last:border-b-0 hover:bg-gray-750 transition-colors group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            <Bitcoin className="w-5 h-5 text-orange-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <h4 className="text-base font-medium truncate">{key.address}</h4>
+                              <span className="text-xs bg-gray-700 px-2 py-1 rounded capitalize">
+                                {key.keyType}
+                              </span>
+                              <span className="text-xs bg-blue-600 px-2 py-1 rounded">
+                                {key.network}
+                              </span>
+                              {key.quantumEnhanced && (
+                                <span className="text-xs bg-purple-600 px-2 py-1 rounded flex items-center space-x-1">
+                                  <Shield className="w-3 h-3" />
+                                  <span>Quantum</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-4 text-sm text-gray-400 mt-1">
+                              <div className="flex items-center space-x-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatDate(key.createdAt)}</span>
+                              </div>
+                              <div>Balance: {(key.balanceSatoshis / 100000000).toFixed(8)} BTC</div>
+                              <div>Txs: {key.transactionCount}</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleCopyToClipboard(key.address)}
+                          className="p-2 hover:bg-gray-600 rounded transition-colors"
+                          title="Copy Address"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Vault Items Subsection */}
+          {items.length > 0 && (
+            <div className="border-b border-gray-700 last:border-b-0">
+              <div className="px-6 py-3 bg-gray-750 border-b border-gray-700">
+                <h3 className="text-lg font-medium flex items-center space-x-2">
+                  <Key className="w-4 h-4" />
+                  <span>Vault Items ({items.length})</span>
+                </h3>
+              </div>
+              
+              {filteredItems.length === 0 ? (
+                <div className="p-8 text-center text-gray-400">
+                  <div>No vault items match your search criteria</div>
                 </div>
               ) : (
-                <div>No keys match your search criteria</div>
-              )}
-            </div>
-          ) : (
-            <div className="max-h-96 overflow-y-auto">
-              {filteredItems.map((item) => (
+                <div className="max-h-96 overflow-y-auto">
+                  {filteredItems.map((item) => (
                 <div
                   key={item.id}
                   className="px-6 py-4 border-b border-gray-700 last:border-b-0 hover:bg-gray-750 transition-colors group"
@@ -325,7 +410,18 @@ const VaultDetailsPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Empty state when no keys at all */}
+          {bitcoinKeys.length === 0 && items.length === 0 && (
+            <div className="p-8 text-center text-gray-400">
+              <Key className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <div className="text-lg mb-2">No keys in this vault</div>
+              <div className="text-sm">Add your first key to get started</div>
             </div>
           )}
         </div>
