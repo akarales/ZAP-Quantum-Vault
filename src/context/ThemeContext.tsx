@@ -26,31 +26,68 @@ export function ThemeProvider({
   storageKey = 'zap-vault-theme',
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-  );
+  const [theme, setTheme] = useState<Theme>(() => {
+    // Get theme from localStorage or use default
+    const savedTheme = localStorage.getItem(storageKey) as Theme;
+    return savedTheme || defaultTheme;
+  });
 
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Apply theme immediately on mount to prevent FOUC
   useEffect(() => {
     const root = window.document.documentElement;
-
+    
+    // Remove existing theme classes
     root.classList.remove('light', 'dark');
 
+    let actualTheme: 'light' | 'dark';
+
     if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
-        .matches
+      actualTheme = window.matchMedia('(prefers-color-scheme: dark)').matches
         ? 'dark'
         : 'light';
-
-      root.classList.add(systemTheme);
-      return;
+    } else {
+      actualTheme = theme;
     }
 
-    root.classList.add(theme);
-  }, [theme]);
+    // Apply theme class immediately
+    root.classList.add(actualTheme);
+    
+    // Mark as initialized after first render
+    if (!isInitialized) {
+      setIsInitialized(true);
+    }
+  }, [theme, isInitialized]);
 
   const value = {
     theme,
     setTheme: (newTheme: Theme) => {
+      // Apply theme immediately to DOM for instant switching
+      const root = window.document.documentElement;
+      
+      // Temporarily disable transitions for instant switching
+      root.classList.add('theme-switching');
+      
+      root.classList.remove('light', 'dark');
+      
+      let actualTheme: 'light' | 'dark';
+      if (newTheme === 'system') {
+        actualTheme = window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light';
+      } else {
+        actualTheme = newTheme;
+      }
+      
+      root.classList.add(actualTheme);
+      
+      // Re-enable transitions after a frame
+      requestAnimationFrame(() => {
+        root.classList.remove('theme-switching');
+      });
+      
+      // Then update state and localStorage
       localStorage.setItem(storageKey, newTheme);
       setTheme(newTheme);
     },

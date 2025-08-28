@@ -1,0 +1,205 @@
+@import "tailwindcss";
+
+:root {
+  --radius: 0.625rem;
+}
+
+/* Light theme - Modern, subtle design */
+.light {
+  --color-background: oklch(1 0 0);
+  --color-foreground: oklch(0.145 0 0);
+  --color-card: oklch(0.985 0 0);
+  --color-card-foreground: oklch(0.145 0 0);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.145 0 0);
+  --color-primary: oklch(0.205 0 0);
+  --color-primary-foreground: oklch(0.985 0 0);
+  --color-secondary: oklch(0.97 0 0);
+  --color-secondary-foreground: oklch(0.205 0 0);
+  --color-muted: oklch(0.97 0 0);
+  --color-muted-foreground: oklch(0.556 0 0);
+  --color-accent: oklch(0.97 0 0);
+  --color-accent-foreground: oklch(0.205 0 0);
+  --color-destructive: oklch(0.577 0.245 27.325);
+  --color-destructive-foreground: oklch(0.985 0 0);
+  --color-border: oklch(0.922 0 0);
+  --color-input: oklch(0.97 0 0);
+  --color-ring: oklch(0.708 0 0);
+  
+  /* Sidebar colors for light theme */
+  --color-sidebar: oklch(0.985 0 0);
+  --color-sidebar-foreground: oklch(0.145 0 0);
+  --color-sidebar-primary: oklch(0.205 0 0);
+  --color-sidebar-primary-foreground: oklch(0.985 0 0);
+  --color-sidebar-accent: oklch(0.97 0 0);
+  --color-sidebar-accent-foreground: oklch(0.205 0 0);
+  --color-sidebar-border: oklch(0.922 0 0);
+  --color-sidebar-ring: oklch(0.708 0 0);
+  
+  /* Light theme shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+/* Dark theme - Enhanced with better contrast and depth */
+.dark {
+  --color-background: oklch(0.145 0 0);
+  --color-foreground: oklch(0.985 0 0);
+  --color-card: oklch(0.205 0 0);
+  --color-card-foreground: oklch(0.985 0 0);
+  --color-popover: oklch(0.269 0 0);
+  --color-popover-foreground: oklch(0.985 0 0);
+  --color-primary: oklch(0.922 0 0);
+  --color-primary-foreground: oklch(0.205 0 0);
+  --color-secondary: oklch(0.269 0 0);
+  --color-secondary-foreground: oklch(0.985 0 0);
+  --color-muted: oklch(0.269 0 0);
+  --color-muted-foreground: oklch(0.708 0 0);
+  --color-accent: oklch(0.371 0 0);
+  --color-accent-foreground: oklch(0.985 0 0);
+  --color-destructive: oklch(0.704 0.191 22.216);
+  --color-destructive-foreground: oklch(0.985 0 0);
+  --color-border: oklch(1 0 0 / 10%);
+  --color-input: oklch(1 0 0 / 15%);
+  --color-ring: oklch(0.556 0 0);
+  
+  /* Sidebar colors for dark theme */
+  --color-sidebar: oklch(0.205 0 0);
+  --color-sidebar-foreground: oklch(0.985 0 0);
+  --color-sidebar-primary: oklch(0.488 0.243 264.376);
+  --color-sidebar-primary-foreground: oklch(0.985 0 0);
+  --color-sidebar-accent: oklch(0.269 0 0);
+  --color-sidebar-accent-foreground: oklch(0.985 0 0);
+  --color-sidebar-border: oklch(1 0 0 / 10%);
+  --color-sidebar-ring: oklch(0.439 0 0);
+  
+  /* Dark theme shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+/* Prevent FOUC and ensure smooth theme transitions */
+html {
+  color-scheme: light dark;
+}
+
+html.light {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* No transitions for instant theme switching */
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* Enhanced UI components with subtle shadows and depth */
+
+/* Cards */
+[data-radix-card],
+.card,
+[class*="card"] {
+  box-shadow: var(--shadow);
+}
+
+[data-radix-card]:hover,
+.card:hover,
+[class*="card"]:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* Buttons */
+button[data-variant="default"],
+.btn-primary,
+[class*="primary"] {
+  box-shadow: var(--shadow-sm);
+}
+
+button[data-variant="default"]:hover,
+.btn-primary:hover,
+[class*="primary"]:hover {
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+
+/* Dropdown and Popover fixes - Critical for transparency issues */
+[data-radix-popper-content-wrapper] {
+  z-index: 50 !important;
+}
+
+[data-radix-dropdown-menu-content],
+[data-radix-popover-content],
+[data-radix-select-content],
+[role="menu"],
+[role="listbox"],
+.dropdown-content,
+.popover-content {
+  background-color: var(--color-popover) !important;
+  border: 1px solid var(--color-border) !important;
+  box-shadow: var(--shadow-lg) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Select dropdown items */
+[data-radix-select-item],
+[data-radix-dropdown-menu-item] {
+  background-color: transparent !important;
+  transition: background-color 0.15s ease-in-out;
+}
+
+[data-radix-select-item]:hover,
+[data-radix-dropdown-menu-item]:hover {
+  background-color: var(--color-accent) !important;
+}
+
+/* Input fields */
+input,
+textarea,
+.input-field {
+  box-shadow: var(--shadow-sm);
+  background-color: var(--color-input) !important;
+}
+
+input:focus,
+textarea:focus,
+.input-field:focus {
+  box-shadow: var(--shadow), 0 0 0 2px var(--color-ring);
+}
+
+/* Sidebar */
+[data-sidebar],
+.sidebar {
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(8px);
+}
+
+/* Dialogs and modals */
+[data-radix-dialog-content],
+.dialog-content {
+  box-shadow: var(--shadow-xl);
+  backdrop-filter: blur(12px);
+}

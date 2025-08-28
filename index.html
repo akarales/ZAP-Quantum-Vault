@@ -4,7 +4,55 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <title>ZAP Quantum Vault</title>
+    
+    <!-- Critical CSS Variables - Inline for instant loading -->
+    <style>
+      :root {
+        --color-background: 0 0% 100%;
+        --color-foreground: 222.2 84% 4.9%;
+        --color-card: 0 0% 100%;
+        --color-border: 214.3 31.8% 91.4%;
+        --color-primary: 221.2 83.2% 53.3%;
+      }
+      .dark {
+        --color-background: 222.2 84% 4.9%;
+        --color-foreground: 210 40% 98%;
+        --color-card: 222.2 84% 4.9%;
+        --color-border: 217.2 32.6% 17.5%;
+        --color-primary: 217.2 91.2% 59.8%;
+      }
+      body {
+        background-color: hsl(var(--color-background));
+        color: hsl(var(--color-foreground));
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      #root {
+        min-height: 100vh;
+      }
+    </style>
+    
+    <!-- Theme initialization script to prevent FOUC -->
+    <script>
+      (function() {
+        const storageKey = 'zap-vault-theme';
+        const savedTheme = localStorage.getItem(storageKey);
+        const defaultTheme = 'system';
+        
+        let theme = savedTheme || defaultTheme;
+        let actualTheme;
+        
+        if (theme === 'system') {
+          actualTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        } else {
+          actualTheme = theme;
+        }
+        
+        // Apply theme class immediately to prevent flash
+        document.documentElement.classList.add(actualTheme);
+      })();
+    </script>
   </head>
 
   <body>

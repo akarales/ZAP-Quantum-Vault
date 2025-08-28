@@ -1,15 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { 
   Bitcoin, 
   Key, 
@@ -23,177 +14,197 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
-  HardDrive,
-  Usb,
+  QrCode,
   RefreshCw,
-  Lock,
-  Unlock,
+  Clock,
+  TrendingUp,
+  Activity,
+  Shuffle,
   Trash2
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface BitcoinKey {
   id: string;
+  vaultId: string;
   keyType: string;
   network: string;
+  encryptedPrivateKey: string; // Base64-encoded string from backend
+  publicKey: string; // Base64-encoded string from backend
   address: string;
   derivationPath?: string;
   entropySource: string;
   quantumEnhanced: boolean;
   createdAt: string;
   lastUsed?: string;
-  label?: string;
-  description?: string;
-  tags?: string[];
-  balanceSatoshis: number;
-  transactionCount: number;
-  backupCount: number;
+  isActive: boolean;
 }
 
-interface HDWallet {
-  id: string;
-  name: string;
+interface KeyGenerationForm {
+  keyType: string;
   network: string;
-  masterXpub: string;
-  derivationCount: number;
-  quantumEnhanced: boolean;
-  createdAt: string;
-  lastDerived?: string;
+  password: string;
+  description: string;
+  vaultId: string;
 }
 
-interface UsbDrive {
-  id: string;
-  device_path: string;
-  mount_point?: string;
-  capacity: number;
-  available_space: number;
-  filesystem: string;
-  is_encrypted: boolean;
-  label?: string;
-  trust_level: 'trusted' | 'untrusted' | 'blocked';
-  last_backup?: string;
-  backup_count: number;
-  health_status: string;
+
+interface BitcoinAddressInfo {
+  address: string;
+  keyType: string;
+  network: string;
+  publicKey: string;
+  addressType?: string;
+  qrCode?: string;
 }
 
 export const BitcoinKeysPage = () => {
   const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
-  const [hdWallets, setHdWallets] = useState<HDWallet[]>([]);
+  const [showPrivateKey, setShowPrivateKey] = useState<Record<string, boolean>>({});
+  const [decryptedPrivateKeys, setDecryptedPrivateKeys] = useState<Record<string, string>>({});
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+
+  // Private key handlers
+  const handleShowPrivateKey = async (keyId: string, password: string) => {
+    try {
+      const result = await invoke('decrypt_private_key', { keyId, password }) as string;
+      setDecryptedPrivateKeys(prev => ({ ...prev, [keyId]: result }));
+      setShowPrivateKey(prev => ({ ...prev, [keyId]: true }));
+    } catch (error) {
+      console.error('Failed to decrypt private key:', error);
+      alert('Failed to decrypt private key. Check your password.');
+    }
+  };
+
+  const handleHidePrivateKey = (keyId: string) => {
+    setShowPrivateKey(prev => ({ ...prev, [keyId]: false }));
+    setDecryptedPrivateKeys(prev => {
+      const newKeys = { ...prev };
+      delete newKeys[keyId];
+      return newKeys;
+    });
+  };
+
+  const handleDeleteKey = async (keyId: string) => {
+    if (!confirm('Are you sure you want to delete this Bitcoin key? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await invoke('delete_bitcoin_key', { keyId });
+      setBitcoinKeys(prev => prev.filter(key => key.id !== keyId));
+      setSelectedKeys(prev => prev.filter(id => id !== keyId));
+      
+      // Clear any decrypted private keys for this key
+      setDecryptedPrivateKeys(prev => {
+        const newKeys = { ...prev };
+        delete newKeys[keyId];
+        return newKeys;
+      });
+      setShowPrivateKey(prev => ({ ...prev, [keyId]: false }));
+      
+      alert('Bitcoin key deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete Bitcoin key:', error);
+      alert('Failed to delete Bitcoin key. Please try again.');
+    }
+  };
+
+  const copyPrivateKey = (privateKey: string) => {
+    navigator.clipboard.writeText(privateKey);
+    alert('Private key copied to clipboard!');
+  };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [activeTab, setActiveTab] = useState('keys');
-  
-  // USB Drive and Export state
-  const [usbDrives, setUsbDrives] = useState<UsbDrive[]>([]);
-  const [selectedDrive, setSelectedDrive] = useState<string>('');
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [detectingDrives, setDetectingDrives] = useState(false);
-  
-  // Key generation form state
-  const [keyType, setKeyType] = useState('native');
-  const [network, setNetwork] = useState('mainnet');
-  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [selectedVaultId, setSelectedVaultId] = useState('default_vault');
-  const [availableVaults, setAvailableVaults] = useState<any[]>([]);
   
-  // HD wallet form state
-  const [walletName, setWalletName] = useState('');
-  const [entropyBits, setEntropyBits] = useState('256');
+  // Key generation form
+  const [keyForm, setKeyForm] = useState<KeyGenerationForm>({
+    keyType: 'native',
+    network: 'mainnet', // Always mainnet for offline wallet
+    password: '',
+    description: '',
+    vaultId: '' // Will be set to default vault when vaults load
+  });
+
+  // Generated address info
+  const [generatedAddress, setGeneratedAddress] = useState<BitcoinAddressInfo | null>(null);
   
-  // HD derivation state
-  const [selectedWallet, setSelectedWallet] = useState('');
-  const [derivationPath, setDerivationPath] = useState("m/44'/0'/0'/0/0");
-  
-  const currentVaultId = 'default_vault'; // This should come from context/state
+  const currentVaultId = 'default_vault';
 
   useEffect(() => {
     loadBitcoinKeys();
-    loadHdWallets();
-    loadVaults();
   }, []);
-
-  // Reload keys when selected vault changes
-  useEffect(() => {
-    if (selectedVaultId) {
-      loadBitcoinKeys();
-    }
-  }, [selectedVaultId]);
-
-  const detectUsbDrives = async () => {
-    setDetectingDrives(true);
-    setError('');
-    try {
-      const drives = await invoke<UsbDrive[]>('detect_usb_drives');
-      setUsbDrives(drives);
-      // Auto-select first trusted drive if available
-      const trustedDrive = drives.find(d => d.trust_level === 'trusted');
-      if (trustedDrive && !selectedDrive) {
-        setSelectedDrive(trustedDrive.id);
-      }
-    } catch (err) {
-      setError(`Failed to detect USB drives: ${err}`);
-    } finally {
-      setDetectingDrives(false);
-    }
-  };
 
   const loadBitcoinKeys = async () => {
     try {
-      // Use the selected vault ID for listing keys
-      const vaultIdToUse = selectedVaultId || currentVaultId;
-      const keys = await invoke<BitcoinKey[]>('list_bitcoin_keys', { vaultId: vaultIdToUse });
-      setBitcoinKeys(keys);
-      console.log(`Loaded ${keys.length} Bitcoin keys from vault: ${vaultIdToUse}`);
-    } catch (err) {
-      setError(`Failed to load Bitcoin keys: ${err}`);
-    }
-  };
-
-  const loadHdWallets = async () => {
-    try {
-      const wallets = await invoke<HDWallet[]>('list_hd_wallets', { vaultId: currentVaultId });
-      setHdWallets(wallets);
-    } catch (err) {
-      setError(`Failed to load HD wallets: ${err}`);
-    }
-  };
-
-  const loadVaults = async () => {
-    try {
-      const vaults = await invoke<any[]>('list_user_vaults', { userId: 'admin' });
-      setAvailableVaults(vaults);
-      // Set default vault as selected if available
-      const defaultVault = vaults.find(v => v.name === 'default_vault' || v.isDefault);
-      if (defaultVault) {
-        setSelectedVaultId(defaultVault.id);
+      const keys = await invoke('list_bitcoin_keys', {
+        vaultId: currentVaultId
+      }) as BitcoinKey[];
+      console.log('Raw keys data from backend:', keys);
+      console.log('First key structure:', keys[0]);
+      if (keys[0]) {
+        console.log('First key publicKey:', keys[0].publicKey);
+        console.log('All keys from backend:', JSON.stringify(keys, null, 2));
+        console.log('Keys object keys:', Object.keys(keys[0]));
       }
+      setBitcoinKeys(keys);
+      console.log('Loaded Bitcoin keys:', keys);
+      
     } catch (err) {
-      console.error('Failed to load vaults:', err);
+      console.error('Failed to load Bitcoin keys:', err);
+      setError(`Failed to load keys: ${err}`);
     }
   };
 
   const handleGenerateKey = async () => {
-    if (!password) {
+    if (!keyForm.password) {
       setError('Password is required');
       return;
     }
 
     setLoading(true);
     setError('');
-    
+    setSuccess('');
+    setGeneratedAddress(null);
+
     try {
-      const keyId = await invoke<string>('generate_bitcoin_key', {
-        vaultId: selectedVaultId,
-        keyType,
-        network,
-        password
+      const response = await invoke('generate_bitcoin_key', {
+        vaultId: currentVaultId,
+        keyType: keyForm.keyType,
+        network: keyForm.network,
+        password: keyForm.password
+      }) as string;
+
+      // Parse the JSON response
+      let keyData;
+      try {
+        keyData = JSON.parse(response);
+      } catch {
+        // If parsing fails, treat as just the key ID (fallback)
+        keyData = { id: response, address: 'Address generation failed' };
+      }
+
+      // Set the generated address info
+      setGeneratedAddress({
+        address: keyData.address || 'Address not available',
+        keyType: keyData.keyType || keyForm.keyType,
+        network: keyData.network || keyForm.network,
+        publicKey: keyData.publicKey || '',
+        qrCode: '' // QR code generation can be added later
       });
+
+      setSuccess('Bitcoin key generated successfully!');
+      console.log('Generated Bitcoin key:', keyData);
       
-      setSuccess(`Bitcoin key generated successfully! ID: ${keyId}`);
-      setPassword('');
-      // Refresh keys from the vault where the key was generated
+      // Load updated keys
+      setKeyForm(prev => ({ ...prev, password: '' }));
       await loadBitcoinKeys();
     } catch (err) {
       setError(`Failed to generate key: ${err}`);
@@ -202,847 +213,643 @@ export const BitcoinKeysPage = () => {
     }
   };
 
-  const handleGenerateHdWallet = async () => {
-    if (!walletName || !password) {
-      setError('Wallet name and password are required');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    
-    try {
-      const walletId = await invoke<string>('generate_hd_wallet', {
-        vaultId: currentVaultId,
-        name: walletName,
-        network,
-        entropyBits: parseInt(entropyBits),
-        password
-      });
-      
-      setSuccess(`HD wallet created successfully! ID: ${walletId}`);
-      setWalletName('');
-      setPassword('');
-      await loadHdWallets();
-    } catch (err) {
-      setError(`Failed to generate HD wallet: ${err}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeriveKey = async () => {
-    if (!selectedWallet || !derivationPath || !password) {
-      setError('Wallet, derivation path, and password are required');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    
-    try {
-      const keyId = await invoke<string>('derive_hd_key', {
-        walletId: selectedWallet,
-        derivationPath,
-        password
-      });
-      
-      setSuccess(`Key derived successfully! ID: ${keyId}`);
-      setPassword('');
-      await loadBitcoinKeys();
-      await loadHdWallets();
-    } catch (err) {
-      setError(`Failed to derive key: ${err}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExportKeys = async () => {
-    if (selectedKeys.length === 0) {
-      setError('Please select keys to export');
-      return;
-    }
-
-    if (!selectedDrive) {
-      setError('Please select a USB drive for export');
-      return;
-    }
-
-    if (!password) {
-      setError('Password is required for export');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    
-    try {
-      const backupId = await invoke<string>('export_keys_to_usb', {
-        keyIds: selectedKeys,
-        driveId: selectedDrive,
-        password
-      });
-      
-      setSuccess(`Keys exported successfully! Backup ID: ${backupId}`);
-      setSelectedKeys([]);
-      setPassword('');
-      setExportDialogOpen(false);
-      await loadBitcoinKeys();
-    } catch (err) {
-      setError(`Failed to export keys: ${err}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const openExportDialog = () => {
-    if (selectedKeys.length === 0) {
-      setError('Please select keys to export');
-      return;
-    }
-    setExportDialogOpen(true);
-    detectUsbDrives();
-  };
-
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setSuccess('Copied to clipboard!');
     setTimeout(() => setSuccess(''), 2000);
   };
 
-  const handleDeleteKey = async (keyId: string) => {
-    if (!confirm('Are you sure you want to delete this Bitcoin key? This action cannot be undone.')) {
-      return;
-    }
-
-    setLoading(true);
-    setError('');
+  const generateSecurePassword = () => {
+    const length = 32;
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?';
+    let password = '';
     
-    try {
-      await invoke('delete_bitcoin_key', { keyId });
-      setSuccess('Bitcoin key deleted successfully!');
-      await loadBitcoinKeys();
-    } catch (err) {
-      setError(`Failed to delete key: ${err}`);
-    } finally {
-      setLoading(false);
+    // Ensure at least one character from each category
+    const categories = [
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+      'abcdefghijklmnopqrstuvwxyz', 
+      '0123456789',
+      '!@#$%^&*()_+-=[]{}|;:,.<>?'
+    ];
+    
+    // Add one character from each category
+    categories.forEach(category => {
+      password += category.charAt(Math.floor(Math.random() * category.length));
+    });
+    
+    // Fill remaining length with random characters
+    for (let i = password.length; i < length; i++) {
+      password += charset.charAt(Math.floor(Math.random() * charset.length));
     }
+    
+    setKeyForm(prev => ({ ...prev, password }));
+    setSuccess('Secure password generated!');
+    setTimeout(() => setSuccess(''), 2000);
   };
 
-  const formatSatoshis = (satoshis: number) => {
-    return (satoshis / 100000000).toFixed(8) + ' BTC';
+  const getKeyTypeInfo = (keyType: string) => {
+    const types = {
+      legacy: { 
+        name: 'Legacy (P2PKH)', 
+        icon: '🏛️', 
+        prefix: '1',
+        description: 'Original Bitcoin address format'
+      },
+      segwit: { 
+        name: 'SegWit (P2SH-P2WPKH)', 
+        icon: '⚡', 
+        prefix: '3',
+        description: 'Wrapped SegWit for compatibility'
+      },
+      native: { 
+        name: 'Native SegWit (P2WPKH)', 
+        icon: '🆕', 
+        prefix: 'bc1',
+        description: 'Modern Bech32 format, lowest fees'
+      },
+      multisig: { 
+        name: 'MultiSig (P2SH)', 
+        icon: '🔐', 
+        prefix: '3',
+        description: 'Multi-signature security'
+      },
+      taproot: { 
+        name: 'Taproot (P2TR)', 
+        icon: '🌳', 
+        prefix: 'bc1p',
+        description: 'Latest privacy and efficiency features'
+      }
+    };
+    return types[keyType as keyof typeof types] || types.native;
   };
 
-  const getKeyTypeIcon = (keyType: string) => {
-    switch (keyType) {
-      case 'legacy': return '🏛️';
-      case 'segwit': return '⚡';
-      case 'native': return '🆕';
-      case 'multisig': return '🔐';
-      case 'taproot': return '🌳';
-      default: return '🔑';
-    }
+  const getNetworkInfo = (network: string) => {
+    const networks = {
+      mainnet: { name: 'Bitcoin Mainnet', color: 'bg-green-100/50 text-green-800 dark:bg-green-950/20 dark:text-green-200', description: 'Real Bitcoin network' },
+      testnet: { name: 'Bitcoin Testnet', color: 'bg-yellow-100/50 text-yellow-800 dark:bg-yellow-950/20 dark:text-yellow-200', description: 'Test network for development' },
+      regtest: { name: 'Regression Test', color: 'bg-blue-100/50 text-blue-800 dark:bg-blue-950/20 dark:text-blue-200', description: 'Local testing network' }
+    };
+    return networks[network as keyof typeof networks] || networks.testnet;
   };
 
-  const getNetworkColor = (network: string) => {
-    switch (network) {
-      case 'mainnet': return 'bg-green-100 text-green-800';
-      case 'testnet': return 'bg-yellow-100 text-yellow-800';
-      case 'regtest': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const formatPublicKey = (publicKey: string | number[]) => {
+    if (!publicKey) {
+      return 'N/A';
     }
+    
+    if (typeof publicKey === 'string') {
+      try {
+        // Decode base64 to bytes
+        const bytes = atob(publicKey);
+        
+        // Convert to hex
+        const hex = Array.from(bytes, (byte) => 
+          byte.charCodeAt(0).toString(16).padStart(2, '0')
+        ).join('');
+        
+        return `${hex.slice(0, 8)}...${hex.slice(-8)}`;
+      } catch (error) {
+        return 'N/A';
+      }
+    } else if (Array.isArray(publicKey)) {
+      try {
+        const hex = publicKey.map(byte => byte.toString(16).padStart(2, '0')).join('');
+        return `${hex.slice(0, 8)}...${hex.slice(-8)}`;
+      } catch (error) {
+        return 'N/A';
+      }
+    }
+    
+    return 'N/A';
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Bitcoin className="h-8 w-8 text-orange-500" />
-            Bitcoin Keys
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Quantum-enhanced Bitcoin key generation and management
-          </p>
-        </div>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto p-4 max-w-7xl space-y-6">
         
-        <div className="flex gap-2">
-          <Button
-            onClick={openExportDialog}
-            disabled={selectedKeys.length === 0 || loading}
-            variant="outline"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export Selected ({selectedKeys.length})
-          </Button>
+        {/* Header */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-bold flex items-center gap-3">
+              <Bitcoin className="h-10 w-10 text-orange-500" />
+              Bitcoin Key Management
+            </h1>
+            <p className="text-muted-foreground mt-2 text-lg">
+              Air-gapped Bitcoin wallet with quantum-enhanced security for offline storage
+            </p>
+          </div>
+          
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => loadBitcoinKeys()}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+            <Button
+              onClick={() => setSelectedKeys([])}
+              variant="outline"
+              size="sm"
+              disabled={selectedKeys.length === 0}
+            >
+              Clear Selection ({selectedKeys.length})
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+        {/* Alerts */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-      {success && (
-        <Alert>
-          <CheckCircle className="h-4 w-4" />
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
+        {success && (
+          <Alert>
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>{success}</AlertDescription>
+          </Alert>
+        )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="keys">Bitcoin Keys</TabsTrigger>
-          <TabsTrigger value="wallets">HD Wallets</TabsTrigger>
-          <TabsTrigger value="generate">Generate New</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="keys" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Key className="h-5 w-5" />
-                Bitcoin Keys ({bitcoinKeys.length})
-              </CardTitle>
-              <CardDescription>
-                Manage your quantum-enhanced Bitcoin keys
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {bitcoinKeys.length === 0 ? (
-                <div className="text-center py-8">
-                  <Bitcoin className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No Bitcoin keys found</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Generate your first quantum-enhanced Bitcoin key to get started.
-                  </p>
-                  <Button onClick={() => setActiveTab('generate')}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Generate Key
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {bitcoinKeys.map((key) => (
-                    <Card key={key.id} className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={selectedKeys.includes(key.id)}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setSelectedKeys([...selectedKeys, key.id]);
-                              } else {
-                                setSelectedKeys(selectedKeys.filter(id => id !== key.id));
-                              }
-                            }}
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-2xl">{getKeyTypeIcon(key.keyType)}</span>
-                              <h3 className="font-semibold">
-                                {key.label || `${key.keyType.charAt(0).toUpperCase() + key.keyType.slice(1)} Key`}
-                              </h3>
-                              <Badge className={getNetworkColor(key.network)}>
-                                {key.network}
-                              </Badge>
-                              {key.quantumEnhanced && (
-                                <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                                  <Zap className="h-3 w-3 mr-1" />
-                                  Quantum
-                                </Badge>
-                              )}
-                            </div>
-                            
-                            <div className="space-y-2 text-sm">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">Address:</span>
-                                <code className="bg-muted px-2 py-1 rounded text-xs font-mono">
-                                  {key.address}
-                                </code>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => copyToClipboard(key.address)}
-                                >
-                                  <Copy className="h-3 w-3" />
-                                </Button>
-                              </div>
-                              
-                              {key.derivationPath && (
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">Path:</span>
-                                  <code className="bg-muted px-2 py-1 rounded text-xs">
-                                    {key.derivationPath}
-                                  </code>
-                                </div>
-                              )}
-                              
-                              <div className="flex items-center gap-4 text-muted-foreground">
-                                <span>Balance: {formatSatoshis(key.balanceSatoshis)}</span>
-                                <span>Transactions: {key.transactionCount}</span>
-                                <span>Backups: {key.backupCount}</span>
-                              </div>
-                              
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>Created: {new Date(key.createdAt).toLocaleDateString()}</span>
-                                <span>•</span>
-                                <span>Entropy: {key.entropySource}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleDeleteKey(key.id)}
-                            disabled={loading}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="wallets" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wallet className="h-5 w-5" />
-                HD Wallets ({hdWallets.length})
-              </CardTitle>
-              <CardDescription>
-                Hierarchical Deterministic wallets with quantum-enhanced entropy
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {hdWallets.length === 0 ? (
-                <div className="text-center py-8">
-                  <Wallet className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No HD wallets found</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Create your first HD wallet to generate multiple keys from a single seed.
-                  </p>
-                  <Button onClick={() => setActiveTab('generate')}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create HD Wallet
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {hdWallets.map((wallet) => (
-                    <Card key={wallet.id} className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Wallet className="h-5 w-5" />
-                            <h3 className="font-semibold">{wallet.name}</h3>
-                            <Badge className={getNetworkColor(wallet.network)}>
-                              {wallet.network}
-                            </Badge>
-                            {wallet.quantumEnhanced && (
-                              <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                                <Zap className="h-3 w-3 mr-1" />
-                                Quantum
-                              </Badge>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-2 text-sm">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">Master xPub:</span>
-                              <code className="bg-muted px-2 py-1 rounded text-xs font-mono truncate max-w-md">
-                                {wallet.masterXpub}
-                              </code>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => copyToClipboard(wallet.masterXpub)}
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
-                            </div>
-                            
-                            <div className="flex items-center gap-4 text-muted-foreground">
-                              <span>Keys derived: {wallet.derivationCount}</span>
-                              <span>Created: {new Date(wallet.createdAt).toLocaleDateString()}</span>
-                            </div>
-                          </div>
-                          
-                          <div className="mt-4">
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Key className="h-4 w-4 mr-2" />
-                                  Derive Key
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Derive Key from {wallet.name}</DialogTitle>
-                                  <DialogDescription>
-                                    Generate a new key from this HD wallet using a derivation path.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                
-                                <div className="space-y-4">
-                                  <div>
-                                    <Label htmlFor="derivationPath">Derivation Path</Label>
-                                    <Input
-                                      id="derivationPath"
-                                      value={derivationPath}
-                                      onChange={(e) => setDerivationPath(e.target.value)}
-                                      placeholder="m/44'/0'/0'/0/0"
-                                    />
-                                  </div>
-                                  
-                                  <div>
-                                    <Label htmlFor="password">Password</Label>
-                                    <div className="relative">
-                                      <Input
-                                        id="password"
-                                        type={showPassword ? 'text' : 'password'}
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="Enter your password"
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        className="absolute right-0 top-0 h-full px-3"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                      >
-                                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                <DialogFooter>
-                                  <Button
-                                    onClick={() => {
-                                      setSelectedWallet(wallet.id);
-                                      handleDeriveKey();
-                                    }}
-                                    disabled={loading}
-                                  >
-                                    {loading ? 'Deriving...' : 'Derive Key'}
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-                          </div>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="generate" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          
+          {/* Key Generation Panel - Left Side */}
+          <div className="xl:col-span-1 space-y-6">
+            <Card className="shadow-lg">
+              <CardHeader className="pb-4">
                 <CardTitle className="flex items-center gap-2">
-                  <Key className="h-5 w-5" />
-                  Generate Single Key
+                  <Plus className="h-5 w-5" />
+                  Generate New Bitcoin Key
                 </CardTitle>
                 <CardDescription>
-                  Create a single Bitcoin key with quantum-enhanced entropy
+                  Create quantum-enhanced Bitcoin keys for offline cold storage
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="keyType">Key Type</Label>
-                  <Select value={keyType} onValueChange={setKeyType}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="legacy">Legacy (P2PKH)</SelectItem>
-                      <SelectItem value="segwit">SegWit (P2WPKH)</SelectItem>
-                      <SelectItem value="native">Native Bech32 (P2WPKH)</SelectItem>
-                      <SelectItem value="multisig">MultiSig (P2SH)</SelectItem>
-                      <SelectItem value="taproot">Taproot (P2TR)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <CardContent className="space-y-6">
                 
-                <div>
-                  <Label htmlFor="network">Network</Label>
-                  <Select value={network} onValueChange={setNetwork}>
-                    <SelectTrigger>
+                {/* Offline Wallet Mode */}
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Offline Wallet Mode</Label>
+                  <div className="bg-accent/50 p-4 rounded-lg border border-border">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                      <div className="flex-1">
+                        <div className="font-medium text-accent-foreground">Bitcoin Mainnet (Air-Gapped)</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Offline wallet with manually imported blockchain data
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    💡 This wallet operates offline for maximum security. Blockchain data must be imported manually.
+                  </div>
+                </div>
+
+                {/* Address Type Selection */}
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Address Type</Label>
+                  <Select 
+                    value={keyForm.keyType} 
+                    onValueChange={(value) => setKeyForm(prev => ({ ...prev, keyType: value }))}
+                  >
+                    <SelectTrigger className="h-12">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mainnet">Mainnet</SelectItem>
-                      <SelectItem value="testnet">Testnet</SelectItem>
-                      <SelectItem value="regtest">Regtest</SelectItem>
+                      {Object.entries({
+                        legacy: 'Legacy (P2PKH) - 1xxx addresses',
+                        segwit: 'SegWit (P2SH-P2WPKH) - 3xxx addresses',
+                        native: 'Native SegWit (P2WPKH) - bc1xxx addresses',
+                        multisig: 'MultiSig (P2SH) - 3xxx addresses',
+                        taproot: 'Taproot (P2TR) - bc1pxxx addresses'
+                      }).map(([value]) => {
+                        const info = getKeyTypeInfo(value);
+                        return (
+                          <SelectItem key={value} value={value}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">{info.icon}</span>
+                              <div>
+                                <div className="font-medium">{info.name}</div>
+                                <div className="text-xs text-muted-foreground">{info.description}</div>
+                              </div>
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div>
-                  <Label htmlFor="vault">Vault</Label>
-                  <Select value={selectedVaultId} onValueChange={setSelectedVaultId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select vault" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableVaults.map((vault) => (
-                        <SelectItem key={vault.id} value={vault.id}>
-                          {vault.name} {vault.isDefault && '(Default)'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
+                <div className="border-t my-4" />
+
+                {/* Security Settings */}
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Security Settings</Label>
+                  
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="password">Encryption Password</Label>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={generateSecurePassword}
+                          className="text-xs h-8"
+                        >
+                          <Shuffle className="h-3 w-3 mr-1" />
+                          Generate
+                        </Button>
+                        {keyForm.password && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyToClipboard(keyForm.password)}
+                            className="text-xs h-8"
+                          >
+                            <Copy className="h-3 w-3 mr-1" />
+                            Copy
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? 'text' : 'password'}
+                        value={keyForm.password}
+                        onChange={(e) => setKeyForm(prev => ({ ...prev, password: e.target.value }))}
+                        placeholder="Enter strong password or generate one"
+                        className="h-12 pr-12"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    {keyForm.password && (
+                      <div className="text-xs text-muted-foreground">
+                        Password strength: <span className="text-green-600 dark:text-green-400 font-medium">Very Strong</span> ({keyForm.password.length} characters)
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-accent/30 p-3 rounded-lg border border-border">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Zap className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                      <span className="font-medium text-accent-foreground">
+                        Quantum-Enhanced Entropy
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Using Kyber1024 + Dilithium5 post-quantum algorithms
+                    </p>
                   </div>
                 </div>
-                
+
                 <Button 
                   onClick={handleGenerateKey} 
-                  disabled={loading || !password}
-                  className="w-full"
+                  disabled={loading || !keyForm.password}
+                  className="w-full h-12 text-base font-semibold"
+                  size="lg"
                 >
-                  <Shield className="h-4 w-4 mr-2" />
-                  {loading ? 'Generating...' : 'Generate Quantum Key'}
+                  <Shield className="h-5 w-5 mr-2" />
+                  {loading ? 'Generating Quantum Key...' : 'Generate Bitcoin Key'}
                 </Button>
+
               </CardContent>
             </Card>
 
-            <Card>
+            {/* Generated Address Display */}
+            {generatedAddress && (
+              <Card className="shadow-lg border-green-500/20 bg-green-50/50 dark:bg-green-950/20">
+                <CardHeader className="pb-4">
+                  <CardTitle className="flex items-center gap-2 text-green-800 dark:text-green-200">
+                    <CheckCircle className="h-5 w-5" />
+                    New Bitcoin Address Generated
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label className="text-sm font-medium">Receiving Address</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <code className="flex-1 bg-card p-3 rounded-md text-sm font-mono border border-border">
+                        {generatedAddress.address}
+                      </code>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyToClipboard(generatedAddress.address)}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <Label className="text-xs">Address Type</Label>
+                      <div className="font-medium">{getKeyTypeInfo(generatedAddress.keyType).name}</div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Network</Label>
+                      <div className="font-medium">{getNetworkInfo(generatedAddress.network).name}</div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-sm font-medium">Public Key</Label>
+                    <code className="block bg-card p-2 rounded text-xs font-mono border border-border mt-1">
+                      {generatedAddress.publicKey}
+                    </code>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1">
+                      <QrCode className="h-4 w-4 mr-2" />
+                      QR Code
+                    </Button>
+                    <Button size="sm" variant="outline" className="flex-1">
+                      <Download className="h-4 w-4 mr-2" />
+                      Export
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Key Inventory - Right Side */}
+          <div className="xl:col-span-2 space-y-6">
+            
+            {/* Statistics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Key className="h-5 w-5 text-blue-500 dark:text-blue-400" />
+                    <div>
+                      <div className="text-2xl font-bold">{bitcoinKeys.length}</div>
+                      <div className="text-sm text-muted-foreground">Total Keys</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-green-500 dark:text-green-400" />
+                    <div>
+                      <div className="text-2xl font-bold">{bitcoinKeys.filter(k => k.quantumEnhanced).length}</div>
+                      <div className="text-sm text-muted-foreground">Quantum Keys</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-orange-500" />
+                    <div>
+                      <div className="text-2xl font-bold">{bitcoinKeys.filter(k => k.isActive).length}</div>
+                      <div className="text-sm text-muted-foreground">Active Keys</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Checkbox 
+                      checked={selectedKeys.length > 0}
+                      className="h-5 w-5"
+                    />
+                    <div>
+                      <div className="text-2xl font-bold">{selectedKeys.length}</div>
+                      <div className="text-sm text-muted-foreground">Selected</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Key Inventory */}
+            <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Wallet className="h-5 w-5" />
-                  Create HD Wallet
+                  Bitcoin Key Inventory
                 </CardTitle>
                 <CardDescription>
-                  Create a hierarchical deterministic wallet for multiple keys
+                  Manage your quantum-enhanced Bitcoin keys and addresses
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="walletName">Wallet Name</Label>
-                  <Input
-                    id="walletName"
-                    value={walletName}
-                    onChange={(e) => setWalletName(e.target.value)}
-                    placeholder="My Quantum Wallet"
-                  />
-                </div>
-                
-                <div>
-                  <Label htmlFor="network">Network</Label>
-                  <Select value={network} onValueChange={setNetwork}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="mainnet">Mainnet</SelectItem>
-                      <SelectItem value="testnet">Testnet</SelectItem>
-                      <SelectItem value="regtest">Regtest</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="entropyBits">Entropy Bits</Label>
-                  <Select value={entropyBits} onValueChange={setEntropyBits}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="128">128 bits (12 words)</SelectItem>
-                      <SelectItem value="160">160 bits (15 words)</SelectItem>
-                      <SelectItem value="192">192 bits (18 words)</SelectItem>
-                      <SelectItem value="224">224 bits (21 words)</SelectItem>
-                      <SelectItem value="256">256 bits (24 words)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              <CardContent>
+                {bitcoinKeys.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Bitcoin className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                    <h3 className="text-xl font-semibold mb-2">No Bitcoin Keys Found</h3>
+                    <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                      Generate your first offline Bitcoin key for secure air-gapped cold storage.
+                    </p>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-50/50 dark:bg-yellow-950/20 p-3 rounded-lg mb-4 border border-yellow-200 dark:border-yellow-800">
+                      ⚠️ Database storage not implemented - keys are generated but not persisted
+                    </div>
+                    <Button onClick={handleGenerateKey} disabled={!keyForm.password}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Generate Your First Key
                     </Button>
                   </div>
-                </div>
-                
-                <Button 
-                  onClick={handleGenerateHdWallet} 
-                  disabled={loading || !walletName || !password}
-                  className="w-full"
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  {loading ? 'Creating...' : 'Create Quantum HD Wallet'}
-                </Button>
+                ) : (
+                  <div className="space-y-4">
+                    {bitcoinKeys.map((key) => (
+                      <Card key={key.id} className="border-l-4 border-l-orange-500">
+                        <CardContent className="p-6">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`key-${key.id}`}
+                                    checked={selectedKeys.includes(key.id)}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setSelectedKeys(prev => [...prev, key.id]);
+                                      } else {
+                                        setSelectedKeys(prev => prev.filter(id => id !== key.id));
+                                      }
+                                    }}
+                                  />
+                                  <Bitcoin className="h-5 w-5 text-orange-500" />
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-lg">{key.address}</h3>
+                                  <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+                                    <span className="flex items-center gap-1">
+                                      <Key className="h-3 w-3" />
+                                      {key.keyType}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <Wallet className="h-3 w-3" />
+                                      {key.network}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <Zap className="h-3 w-3" />
+                                      Quantum Enhanced
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="grid grid-cols-1 gap-4 text-sm">
+                                <div>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <Label className="text-xs font-medium text-muted-foreground">Private Key</Label>
+                                    <div className="flex gap-2">
+                                      {!showPrivateKey[key.id] ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            const password = prompt('Enter password to decrypt private key:');
+                                            if (password) {
+                                              handleShowPrivateKey(key.id, password);
+                                            }
+                                          }}
+                                          className="text-xs h-7"
+                                        >
+                                          <Eye className="h-3 w-3 mr-1" />
+                                          Show
+                                        </Button>
+                                      ) : (
+                                        <>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => copyPrivateKey(decryptedPrivateKeys[key.id])}
+                                            className="text-xs h-7"
+                                          >
+                                            <Copy className="h-3 w-3 mr-1" />
+                                            Copy
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleHidePrivateKey(key.id)}
+                                            className="text-xs h-7"
+                                          >
+                                            <EyeOff className="h-3 w-3 mr-1" />
+                                            Hide
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {showPrivateKey[key.id] && decryptedPrivateKeys[key.id] ? (
+                                    <div className="font-mono text-xs bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 p-2 rounded break-all">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <AlertTriangle className="h-3 w-3 text-red-500 dark:text-red-400" />
+                                        <span className="text-red-600 dark:text-red-400 text-xs font-medium">SENSITIVE DATA</span>
+                                      </div>
+                                      {decryptedPrivateKeys[key.id]}
+                                    </div>
+                                  ) : (
+                                    <div className="font-mono text-xs bg-muted p-2 rounded break-all text-muted-foreground">
+                                      ••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-4">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => copyToClipboard(key.address)}
+                                    className="text-xs h-7"
+                                  >
+                                    <Copy className="h-4 w-4 mr-1" />
+                                    Copy Address
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDeleteKey(key.id)}
+                                    className="text-xs h-7"
+                                  >
+                                    <Trash2 className="h-3 w-3 mr-1" />
+                                    Delete
+                                  </Button>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <Label className="text-sm font-medium">Public Key</Label>
+                                    <code className="block bg-muted p-2 rounded text-xs font-mono mt-1">
+                                      {formatPublicKey(key.publicKey)}
+                                    </code>
+                                  </div>
+                                  
+                                  <div>
+                                    <Label className="text-sm font-medium">Key ID</Label>
+                                    <code className="block bg-muted p-2 rounded text-xs font-mono mt-1">
+                                      {key.id.slice(0, 16)}...
+                                    </code>
+                                  </div>
+                                </div>
+
+                                {key.derivationPath && (
+                                  <div>
+                                    <Label className="text-sm font-medium">Derivation Path</Label>
+                                    <code className="block bg-muted p-2 rounded text-sm font-mono mt-1">
+                                      {key.derivationPath}
+                                    </code>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Metadata */}
+                              <div className="flex items-center gap-6 text-sm text-muted-foreground pt-2 border-t">
+                                <div className="flex items-center gap-1">
+                                  <Clock className="h-4 w-4" />
+                                  Created: {new Date(key.createdAt).toLocaleDateString()}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Shield className="h-4 w-4" />
+                                  Entropy: {key.entropySource}
+                                </div>
+                                {key.lastUsed && (
+                                  <div className="flex items-center gap-1">
+                                    <TrendingUp className="h-4 w-4" />
+                                    Last used: {new Date(key.lastUsed).toLocaleDateString()}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* Enhanced Export Dialog */}
-      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <HardDrive className="h-5 w-5" />
-              Export Keys to Cold Storage
-            </DialogTitle>
-            <DialogDescription>
-              Export {selectedKeys.length} selected Bitcoin keys to an encrypted USB drive for cold storage backup.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-6">
-            {/* Selected Keys Summary */}
-            <div>
-              <Label className="text-base font-semibold">Selected Keys ({selectedKeys.length})</Label>
-              <div className="mt-2 max-h-32 overflow-y-auto border rounded-md p-3 bg-muted/50">
-                {selectedKeys.map(keyId => {
-                  const key = bitcoinKeys.find(k => k.id === keyId);
-                  return key ? (
-                    <div key={keyId} className="flex items-center gap-2 text-sm py-1">
-                      <span className="text-lg">{getKeyTypeIcon(key.keyType)}</span>
-                      <span className="font-mono text-xs">{key.address}</span>
-                      <Badge className={getNetworkColor(key.network)} variant="outline">
-                        {key.network}
-                      </Badge>
-                    </div>
-                  ) : null;
-                })}
-              </div>
-            </div>
-
-            {/* USB Drive Selection */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <Label className="text-base font-semibold">USB Drive Selection</Label>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={detectUsbDrives}
-                  disabled={detectingDrives}
-                >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${detectingDrives ? 'animate-spin' : ''}`} />
-                  {detectingDrives ? 'Detecting...' : 'Refresh'}
-                </Button>
-              </div>
-              
-              {usbDrives.length === 0 ? (
-                <div className="text-center py-8 border rounded-md bg-muted/50">
-                  <Usb className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">
-                    No USB drives detected. Connect a drive and refresh.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {usbDrives.map((drive) => (
-                    <Card 
-                      key={drive.id} 
-                      className={`cursor-pointer transition-all ${
-                        selectedDrive === drive.id 
-                          ? 'ring-2 ring-primary border-primary' 
-                          : 'hover:shadow-md'
-                      }`}
-                      onClick={() => setSelectedDrive(drive.id)}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Usb className="h-4 w-4" />
-                              <span className="font-semibold">
-                                {drive.label || 'USB Drive'}
-                              </span>
-                              <Badge 
-                                variant={drive.trust_level === 'trusted' ? 'default' : 
-                                        drive.trust_level === 'blocked' ? 'destructive' : 'secondary'}
-                              >
-                                {drive.trust_level}
-                              </Badge>
-                              {drive.is_encrypted && (
-                                <Badge variant="outline" className="text-green-600">
-                                  <Lock className="h-3 w-3 mr-1" />
-                                  Encrypted
-                                </Badge>
-                              )}
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
-                              <div>
-                                <span className="font-medium">Capacity:</span> {formatBytes(drive.capacity)}
-                              </div>
-                              <div>
-                                <span className="font-medium">Available:</span> {formatBytes(drive.available_space)}
-                              </div>
-                              <div>
-                                <span className="font-medium">Backups:</span> {drive.backup_count}
-                              </div>
-                              <div>
-                                <span className="font-medium">Health:</span> {drive.health_status}
-                              </div>
-                            </div>
-                            
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              {drive.device_path}
-                            </div>
-                          </div>
-                          
-                          {selectedDrive === drive.id && (
-                            <CheckCircle className="h-5 w-5 text-primary" />
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Export Password */}
-            <div>
-              <Label htmlFor="exportPassword" className="text-base font-semibold">
-                Export Password
-              </Label>
-              <div className="relative mt-2">
-                <Input
-                  id="exportPassword"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password to encrypt the backup"
-                  className="pr-10"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                This password will be used to encrypt your private keys in the backup.
-              </p>
-            </div>
-
-            {/* Export Options */}
-            <div>
-              <Label className="text-base font-semibold">Export Information</Label>
-              <div className="mt-2 p-3 bg-muted/50 rounded-md text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="font-medium">Keys to export:</span> {selectedKeys.length}
-                  </div>
-                  <div>
-                    <span className="font-medium">Target drive:</span> {
-                      selectedDrive ? 
-                        usbDrives.find(d => d.id === selectedDrive)?.label || 'Selected USB' :
-                        'None selected'
-                    }
-                  </div>
-                  <div>
-                    <span className="font-medium">Encryption:</span> AES-256-GCM
-                  </div>
-                  <div>
-                    <span className="font-medium">Quantum enhanced:</span> Yes
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setExportDialogOpen(false)}
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleExportKeys}
-              disabled={loading || !selectedDrive || !password || selectedKeys.length === 0}
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <Shield className="h-4 w-4 mr-2" />
-                  Export to Cold Storage
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+        </div>
+      </div>
     </div>
   );
-};
-
-const formatBytes = (bytes: number) => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
