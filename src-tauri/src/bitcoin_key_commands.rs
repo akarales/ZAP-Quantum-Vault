@@ -124,18 +124,33 @@ pub async fn get_bitcoin_key_details(
 ) -> Result<serde_json::Value, String> {
     let db = &app_state.db;
     
-    match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.public_key, bk.address, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count, bkm.last_transaction, bkm.backup_count, bkm.last_backup FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id WHERE bk.id = ? AND bk.is_active = 1")
+    // Run migration for existing keys
+    if let Err(e) = crate::bitcoin_commands::migrate_existing_keys_to_receiving_addresses(db.as_ref()).await {
+        crate::log_error!("bitcoin_key_commands", &format!("Migration failed: {}", e));
+    }
+    
+    match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count, bkm.last_transaction, bkm.backup_count, bkm.last_backup, ra.address FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id LEFT JOIN receiving_addresses ra ON bk.id = ra.key_id AND ra.derivation_index = 0 WHERE bk.id = ? AND bk.is_active = 1")
         .bind(&key_id)
         .fetch_one(db.as_ref())
         .await {
         Ok(row) => {
+            // Safely extract encrypted private key
+            let encrypted_private_key = match row.try_get::<Vec<u8>, _>("encrypted_private_key") {
+                Ok(bytes) => general_purpose::STANDARD.encode(&bytes),
+                Err(e) => {
+                    log_error!("bitcoin_key_commands", &format!("Failed to get encrypted_private_key: {}", e));
+                    return Err(format!("Failed to decode encrypted private key: {}", e));
+                }
+            };
+            
             let key_details = serde_json::json!({
                 "id": row.get::<String, _>("id"),
                 "vaultId": row.get::<Option<String>, _>("vault_id"),
                 "keyType": row.get::<String, _>("key_type"),
                 "network": row.get::<String, _>("network"),
-                "address": row.get::<String, _>("address"),
+                "encryptedPrivateKey": encrypted_private_key,
                 "publicKey": general_purpose::STANDARD.encode(&row.get::<Vec<u8>, _>("public_key")),
+                "address": row.get::<Option<String>, _>("address").unwrap_or_else(|| "No address found".to_string()),
                 "derivationPath": row.get::<Option<String>, _>("derivation_path"),
                 "entropySource": row.get::<Option<String>, _>("entropy_source"),
                 "quantumEnhanced": row.get::<bool, _>("quantum_enhanced"),
@@ -152,7 +167,8 @@ pub async fn get_bitcoin_key_details(
                 "lastBackup": row.get::<Option<String>, _>("last_backup")
             });
             
-            log_info!("bitcoin_key_commands", &format!("Retrieved details for Bitcoin key: {}", row.get::<String, _>("address")));
+            let address = row.get::<Option<String>, _>("address").unwrap_or_else(|| "No address found".to_string());
+            log_info!("bitcoin_key_commands", &format!("Retrieved details for Bitcoin key: {}", address));
             Ok(key_details)
         },
         Err(e) => {

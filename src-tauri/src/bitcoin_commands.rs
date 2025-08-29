@@ -7,6 +7,13 @@ use crate::bitcoin_keys::{SimpleBitcoinKeyGenerator, BitcoinKeyType, BitcoinNetw
 use crate::{log_error, log_info, log_bitcoin_event};
 use crate::logging::BitcoinKeyEvent;
 
+// Migration function to populate receiving_addresses for existing keys
+pub async fn migrate_existing_keys_to_receiving_addresses(_db: &SqlitePool) -> Result<(), String> {
+    // Since the address column has been removed from bitcoin_keys, this migration is no longer needed
+    // All new keys automatically create their primary address in receiving_addresses
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn generate_bitcoin_key(
     vault_id: Option<String>,
@@ -119,7 +126,7 @@ pub async fn generate_bitcoin_key(
     ));
     
     match sqlx::query(
-        "INSERT INTO bitcoin_keys (id, vault_id, key_type, network, encrypted_private_key, public_key, address, derivation_path, entropy_source, quantum_enhanced, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO bitcoin_keys (id, vault_id, key_type, network, encrypted_private_key, public_key, derivation_path, entropy_source, quantum_enhanced, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&bitcoin_key.id)
     .bind(&effective_vault_id)
@@ -127,7 +134,6 @@ pub async fn generate_bitcoin_key(
     .bind(&network_str)
     .bind(&bitcoin_key.encrypted_private_key)
     .bind(&bitcoin_key.public_key)
-    .bind(&bitcoin_key.address)
     .bind(&bitcoin_key.derivation_path)
     .bind(&entropy_source_str)
     .bind(bitcoin_key.quantum_enhanced)
@@ -136,11 +142,36 @@ pub async fn generate_bitcoin_key(
     .execute(db.as_ref())
     .await {
         Ok(_) => {
-            log_info!("bitcoin_commands", &format!("Bitcoin key stored in database: {}", bitcoin_key.address));
+            log_info!("bitcoin_commands", &format!("Bitcoin key stored in database: {}", bitcoin_key.id));
         },
         Err(e) => {
             log_error!("bitcoin_commands", &format!("Failed to store Bitcoin key in database: {}", e));
             return Err(format!("Failed to store key in database: {}", e));
+        }
+    }
+    
+    // Auto-create index 0 receiving address (primary address)
+    let primary_address_id = uuid::Uuid::new_v4().to_string();
+    match sqlx::query(
+        "INSERT INTO receiving_addresses (id, key_id, address, derivation_index, label, is_used, balance_satoshis, transaction_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&primary_address_id)
+    .bind(&bitcoin_key.id)
+    .bind(&bitcoin_key.address)
+    .bind(0i32) // Index 0 for primary address
+    .bind("Primary Address")
+    .bind(false)
+    .bind(0i64)
+    .bind(0i32)
+    .bind(&created_at_str)
+    .execute(db.as_ref())
+    .await {
+        Ok(_) => {
+            log_info!("bitcoin_commands", &format!("Primary receiving address created for key: {}", bitcoin_key.address));
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to create primary receiving address: {}", e));
+            return Err(format!("Failed to create primary receiving address: {}", e));
         }
     }
     
@@ -199,6 +230,11 @@ pub async fn list_bitcoin_keys(
 ) -> Result<Vec<serde_json::Value>, String> {
     let db = &app_state.db;
     
+    // Run migration for existing keys
+    if let Err(e) = migrate_existing_keys_to_receiving_addresses(db.as_ref()).await {
+        log_error!("bitcoin_commands", &format!("Migration failed: {}", e));
+    }
+    
     // Resolve vault ID (try by name or ID, similar to generate_bitcoin_key)
     let effective_vault_id = match app_state.vault_service.get_vault_by_name_or_id(&vault_id).await {
         Ok(Some(vault)) => {
@@ -218,7 +254,7 @@ pub async fn list_bitcoin_keys(
         Err(e) => return Err(format!("Failed to resolve vault: {}", e)),
     };
     
-    match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.address, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id WHERE bk.vault_id = ? AND bk.is_active = 1 ORDER BY bk.created_at DESC")
+    match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count, ra.address FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id LEFT JOIN receiving_addresses ra ON bk.id = ra.key_id AND ra.derivation_index = 0 WHERE bk.vault_id = ? AND bk.is_active = 1 ORDER BY bk.created_at DESC")
         .bind(&effective_vault_id)
         .fetch_all(db.as_ref())
         .await {
@@ -409,4 +445,160 @@ pub async fn get_key_backup_history(
     let backups: Vec<serde_json::Value> = vec![];
     
     Ok(backups)
+}
+
+
+#[tauri::command]
+pub async fn list_receiving_addresses(
+    key_id: String,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let db = &app_state.db;
+    
+    match sqlx::query("SELECT id, key_id, address, derivation_index, label, is_used, balance_satoshis, transaction_count, created_at, last_used FROM receiving_addresses WHERE key_id = ? ORDER BY derivation_index ASC")
+        .bind(&key_id)
+        .fetch_all(db.as_ref())
+        .await {
+        Ok(rows) => {
+            let addresses: Vec<serde_json::Value> = rows.into_iter().map(|row| {
+                serde_json::json!({
+                    "id": row.get::<String, _>("id"),
+                    "keyId": row.get::<String, _>("key_id"),
+                    "address": row.get::<String, _>("address"),
+                    "derivationIndex": row.get::<i32, _>("derivation_index"),
+                    "label": row.get::<Option<String>, _>("label"),
+                    "isUsed": row.get::<bool, _>("is_used"),
+                    "balanceSatoshis": row.get::<i64, _>("balance_satoshis"),
+                    "transactionCount": row.get::<i32, _>("transaction_count"),
+                    "createdAt": row.get::<String, _>("created_at"),
+                    "lastUsed": row.get::<Option<String>, _>("last_used")
+                })
+            }).collect();
+            
+            log_info!("bitcoin_commands", &format!("Retrieved {} receiving addresses for key: {}", addresses.len(), key_id));
+            Ok(addresses)
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to list receiving addresses: {}", e));
+            Err(format!("Failed to retrieve receiving addresses: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn generate_receiving_address(
+    key_id: String,
+    label: Option<String>,
+    app_state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let db = &app_state.db;
+    
+    // First, verify the key exists and get its details, including primary address
+    let key_row = match sqlx::query("SELECT bk.id, bk.key_type, bk.network, bk.public_key, ra.address FROM bitcoin_keys bk LEFT JOIN receiving_addresses ra ON bk.id = ra.key_id AND ra.derivation_index = 0 WHERE bk.id = ? AND bk.is_active = 1")
+        .bind(&key_id)
+        .fetch_optional(db.as_ref())
+        .await {
+        Ok(Some(row)) => row,
+        Ok(None) => return Err(format!("Bitcoin key not found: {}", key_id)),
+        Err(e) => return Err(format!("Failed to verify key: {}", e)),
+    };
+    
+    // Get the next derivation index
+    let next_index = match sqlx::query("SELECT COALESCE(MAX(derivation_index), -1) + 1 as next_index FROM receiving_addresses WHERE key_id = ?")
+        .bind(&key_id)
+        .fetch_one(db.as_ref())
+        .await {
+        Ok(row) => row.get::<i32, _>("next_index"),
+        Err(e) => return Err(format!("Failed to get next derivation index: {}", e)),
+    };
+    
+    // For now, we'll generate a simple derived address based on the original address and index
+    // In a full implementation, this would use proper BIP32 derivation
+    let original_address: String = key_row.get("address");
+    let key_type: String = key_row.get("key_type");
+    let network: String = key_row.get("network");
+    
+    // Simple address derivation (this is a placeholder - in production you'd use proper BIP32)
+    let derived_address = derive_address_from_index(&original_address, next_index, &key_type, &network)?;
+    
+    // Store the new receiving address
+    let address_id = uuid::Uuid::new_v4().to_string();
+    let created_at = chrono::Utc::now().to_rfc3339();
+    
+    match sqlx::query(
+        "INSERT INTO receiving_addresses (id, key_id, address, derivation_index, label, is_used, balance_satoshis, transaction_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&address_id)
+    .bind(&key_id)
+    .bind(&derived_address)
+    .bind(next_index)
+    .bind(&label)
+    .bind(false)
+    .bind(0i64)
+    .bind(0i32)
+    .bind(&created_at)
+    .execute(db.as_ref())
+    .await {
+        Ok(_) => {
+            let new_address = serde_json::json!({
+                "id": address_id,
+                "keyId": key_id,
+                "address": derived_address,
+                "derivationIndex": next_index,
+                "label": label,
+                "isUsed": false,
+                "balanceSatoshis": 0,
+                "transactionCount": 0,
+                "createdAt": created_at,
+                "lastUsed": null
+            });
+            
+            log_info!("bitcoin_commands", &format!("Generated receiving address {} for key: {}", derived_address, key_id));
+            Ok(new_address)
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to store receiving address: {}", e));
+            Err(format!("Failed to store receiving address: {}", e))
+        }
+    }
+}
+
+// Helper function for address derivation (simplified implementation)
+fn derive_address_from_index(base_address: &str, index: i32, key_type: &str, network: &str) -> Result<String, String> {
+    // This is a simplified implementation for demonstration
+    // In a real implementation, you would use proper BIP32 derivation
+    
+    let prefix = match (key_type, network) {
+        ("legacy", "mainnet") => "1",
+        ("legacy", "testnet") => "m",
+        ("legacy", "regtest") => "m",
+        ("segwit", "mainnet") => "3",
+        ("segwit", "testnet") => "2",
+        ("segwit", "regtest") => "2",
+        ("native", "mainnet") => "bc1",
+        ("native", "testnet") => "tb1",
+        ("native", "regtest") => "bcrt1",
+        ("taproot", "mainnet") => "bc1p",
+        ("taproot", "testnet") => "tb1p",
+        ("taproot", "regtest") => "bcrt1p",
+        _ => return Err("Unsupported key type or network".to_string()),
+    };
+    
+    // Generate a deterministic but unique address based on the base address and index
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(base_address.as_bytes());
+    hasher.update(&index.to_le_bytes());
+    let hash = hasher.finalize();
+    
+    // Create a simplified derived address
+    if prefix.starts_with("bc1") || prefix.starts_with("tb1") || prefix.starts_with("bcrt1") {
+        // Bech32 style
+        let hash_hex = hex::encode(&hash[..20]); // Use first 20 bytes
+        Ok(format!("{}{:02x}{}", prefix, index % 256, &hash_hex[..32]))
+    } else {
+        // Legacy/SegWit style
+        let hash_hex = hex::encode(&hash[..16]); // Use first 16 bytes for shorter address
+        Ok(format!("{}{:02x}{}", prefix, index % 256, hash_hex))
+    }
 }

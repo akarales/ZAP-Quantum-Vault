@@ -31,7 +31,7 @@ use crate::cold_storage_commands::{detect_usb_drives, get_drive_details, set_dri
 use crate::format_commands::format_and_encrypt_drive;
 use crate::jwt_commands::{refresh_token, logout_user, validate_session, get_token_info};
 use crate::usb_password_commands::{save_usb_drive_password, get_usb_drive_password, get_user_usb_drive_passwords, delete_usb_drive_password, update_usb_drive_password_hint};
-use crate::bitcoin_commands::{generate_bitcoin_key, generate_hd_wallet, list_bitcoin_keys, list_hd_wallets, derive_hd_key, export_keys_to_usb, get_key_backup_history};
+use crate::bitcoin_commands::{generate_bitcoin_key, generate_hd_wallet, list_bitcoin_keys, list_hd_wallets, derive_hd_key, export_keys_to_usb, get_key_backup_history, list_receiving_addresses, generate_receiving_address};
 use crate::bitcoin_key_commands::{decrypt_private_key, get_bitcoin_key_details, update_bitcoin_key_metadata, delete_bitcoin_key};
 use crate::commands::{create_vault, get_user_vaults, create_vault_item, get_vault_items, delete_vault, delete_vault_item, decrypt_vault_item, list_user_vaults};
 use crate::vault_commands::{get_user_vaults_offline, create_vault_offline, get_vault_items_offline, create_vault_item_offline, delete_vault_offline, delete_vault_item_offline, decrypt_vault_item_offline};
@@ -138,6 +138,8 @@ pub fn run() {
             get_key_backup_history,
             decrypt_private_key,
             get_bitcoin_key_details,
+            list_receiving_addresses,
+            generate_receiving_address,
             update_bitcoin_key_metadata,
             delete_bitcoin_key,
         ])

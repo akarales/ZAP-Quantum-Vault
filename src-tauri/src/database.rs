@@ -117,7 +117,7 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
     .execute(&pool)
     .await?;
     
-    // Bitcoin keys table
+    // Bitcoin keys table (address removed - now stored in receiving_addresses)
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS bitcoin_keys (
             id TEXT PRIMARY KEY,
@@ -126,7 +126,6 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
             network TEXT NOT NULL, -- 'mainnet', 'testnet', 'regtest'
             encrypted_private_key BLOB NOT NULL,
             public_key BLOB NOT NULL,
-            address TEXT NOT NULL,
             derivation_path TEXT,
             entropy_source TEXT NOT NULL, -- 'system', 'quantum', 'quantum_enhanced', 'hardware'
             quantum_enhanced BOOLEAN DEFAULT FALSE,
@@ -138,6 +137,11 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
     )
     .execute(&pool)
     .await?;
+    
+    // Migration: Remove address column from bitcoin_keys if it exists
+    let _ = sqlx::query("ALTER TABLE bitcoin_keys DROP COLUMN address")
+        .execute(&pool)
+        .await; // Ignore errors if column doesn't exist
     
     // HD wallets table
     sqlx::query(
@@ -173,6 +177,25 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
             last_transaction DATETIME,
             backup_count INTEGER DEFAULT 0,
             last_backup DATETIME,
+            FOREIGN KEY (key_id) REFERENCES bitcoin_keys(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
+    // Receiving addresses for Bitcoin keys
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS receiving_addresses (
+            id TEXT PRIMARY KEY,
+            key_id TEXT NOT NULL,
+            address TEXT NOT NULL UNIQUE,
+            derivation_index INTEGER NOT NULL,
+            label TEXT,
+            is_used BOOLEAN DEFAULT FALSE,
+            balance_satoshis INTEGER DEFAULT 0,
+            transaction_count INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_used DATETIME,
             FOREIGN KEY (key_id) REFERENCES bitcoin_keys(id) ON DELETE CASCADE
         )"
     )

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
   Bitcoin, 
@@ -64,6 +65,7 @@ interface BitcoinAddressInfo {
 }
 
 export const BitcoinKeysPage = () => {
+  const navigate = useNavigate();
   const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
   const [showPrivateKey, setShowPrivateKey] = useState<Record<string, boolean>>({});
   const [decryptedPrivateKeys, setDecryptedPrivateKeys] = useState<Record<string, string>>({});
@@ -292,7 +294,7 @@ export const BitcoinKeysPage = () => {
     return networks[network as keyof typeof networks] || networks.testnet;
   };
 
-  const formatPublicKey = (publicKey: string | number[]) => {
+  const formatPublicKey = (publicKey: string | number[], truncate: boolean = true) => {
     if (!publicKey) {
       return 'N/A';
     }
@@ -307,20 +309,31 @@ export const BitcoinKeysPage = () => {
           byte.charCodeAt(0).toString(16).padStart(2, '0')
         ).join('');
         
-        return `${hex.slice(0, 8)}...${hex.slice(-8)}`;
+        return truncate ? `${hex.slice(0, 8)}...${hex.slice(-8)}` : hex;
       } catch (error) {
         return 'N/A';
       }
     } else if (Array.isArray(publicKey)) {
       try {
         const hex = publicKey.map(byte => byte.toString(16).padStart(2, '0')).join('');
-        return `${hex.slice(0, 8)}...${hex.slice(-8)}`;
+        return truncate ? `${hex.slice(0, 8)}...${hex.slice(-8)}` : hex;
       } catch (error) {
         return 'N/A';
       }
     }
     
     return 'N/A';
+  };
+
+  const getFullPublicKey = (publicKey: string | number[]) => {
+    return formatPublicKey(publicKey, false);
+  };
+
+  const copyFullPublicKey = (publicKey: string | number[]) => {
+    const fullKey = getFullPublicKey(publicKey);
+    navigator.clipboard.writeText(fullKey);
+    setSuccess('Full public key copied to clipboard!');
+    setTimeout(() => setSuccess(''), 2000);
   };
 
   return (
@@ -569,10 +582,35 @@ export const BitcoinKeysPage = () => {
                   </div>
 
                   <div>
-                    <Label className="text-sm font-medium">Public Key</Label>
-                    <code className="block bg-card p-2 rounded text-xs font-mono border border-border mt-1">
-                      {generatedAddress.publicKey}
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm font-medium">Public Key</Label>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyFullPublicKey(generatedAddress.publicKey)}
+                          className="text-xs h-7"
+                        >
+                          <Copy className="h-3 w-3 mr-1" />
+                          Copy Full
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyToClipboard(formatPublicKey(generatedAddress.publicKey))}
+                          className="text-xs h-7"
+                        >
+                          <Copy className="h-3 w-3 mr-1" />
+                          Copy Short
+                        </Button>
+                      </div>
+                    </div>
+                    <code className="block bg-card p-2 rounded text-xs font-mono border border-border break-all">
+                      {formatPublicKey(generatedAddress.publicKey)}
                     </code>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Hex format (truncated) • Full: {getFullPublicKey(generatedAddress.publicKey).length / 2} bytes
+                    </div>
                   </div>
 
                   <div className="flex gap-2">
@@ -681,7 +719,7 @@ export const BitcoinKeysPage = () => {
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-3">
+                                <div className="flex items-center gap-3 mb-3">
                                 <div className="flex items-center gap-2">
                                   <Checkbox
                                     id={`key-${key.id}`}
@@ -696,8 +734,8 @@ export const BitcoinKeysPage = () => {
                                   />
                                   <Bitcoin className="h-5 w-5 text-orange-500" />
                                 </div>
-                                <div>
-                                  <h3 className="font-semibold text-lg">{key.address}</h3>
+                                <div className="flex-1 cursor-pointer" onClick={() => navigate(`/bitcoin-keys/${key.id}`)}>
+                                  <h3 className="font-semibold text-lg hover:text-primary transition-colors">{key.address}</h3>
                                   <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
                                     <span className="flex items-center gap-1">
                                       <Key className="h-3 w-3" />
@@ -795,12 +833,37 @@ export const BitcoinKeysPage = () => {
                                   </Button>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4">
                                   <div>
-                                    <Label className="text-sm font-medium">Public Key</Label>
-                                    <code className="block bg-muted p-2 rounded text-xs font-mono mt-1">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <Label className="text-sm font-medium">Public Key</Label>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => copyFullPublicKey(key.publicKey)}
+                                          className="text-xs h-7"
+                                        >
+                                          <Copy className="h-3 w-3 mr-1" />
+                                          Copy Full
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => copyToClipboard(formatPublicKey(key.publicKey))}
+                                          className="text-xs h-7"
+                                        >
+                                          <Copy className="h-3 w-3 mr-1" />
+                                          Copy Short
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    <code className="block bg-muted p-2 rounded text-xs font-mono break-all">
                                       {formatPublicKey(key.publicKey)}
                                     </code>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                      Hex format (truncated) • Full: {getFullPublicKey(key.publicKey).length / 2} bytes
+                                    </div>
                                   </div>
                                   
                                   <div>

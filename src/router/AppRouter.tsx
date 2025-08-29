@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { AuthPage } from '@/pages/AuthPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { BitcoinKeysPage } from '@/pages/BitcoinKeysPage';
+import { BitcoinKeyDetailsPage } from '@/pages/BitcoinKeyDetailsPage';
 import { SecurityCenterPage } from '@/pages/SecurityCenterPage';
 import { UserManagementPage } from '@/pages/UserManagementPage';
 import { AdminResetPage } from '@/pages/AdminResetPage';
@@ -69,10 +70,22 @@ export const AppRouter: React.FC = () => {
           </ProtectedRoute>
         } />
         
-        {/* Placeholder routes for future pages */}
+        {/* Bitcoin Keys Routes */}
         <Route path="/keys" element={
           <ProtectedRoute>
             <BitcoinKeysPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/bitcoin-keys" element={
+          <ProtectedRoute>
+            <BitcoinKeysPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/bitcoin-keys/:keyId" element={
+          <ProtectedRoute>
+            <BitcoinKeyDetailsPage />
           </ProtectedRoute>
         } />
         
