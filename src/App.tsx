@@ -1,14 +1,14 @@
 import { AuthProvider } from '@/context/AuthContext';
-import { ThemeProvider } from '@/context/ThemeContext';
+import { ThemeManager } from '@/themes/ThemeManager';
 import { AppRouter } from '@/router/AppRouter';
 
 function App() {
   return (
-    <ThemeProvider defaultTheme="dark" storageKey="zap-vault-theme">
+    <ThemeManager defaultTheme="dark" storageKey="zap-vault-theme">
       <AuthProvider>
         <AppRouter />
       </AuthProvider>
-    </ThemeProvider>
+    </ThemeManager>
   );
 }
 

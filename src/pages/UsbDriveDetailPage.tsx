@@ -294,7 +294,7 @@ const UsbDriveDetailPage: React.FC = () => {
 
   return (
     <ErrorBoundary>
-      <div className="container mx-auto px-4 py-8 space-y-6 bg-gray-50 dark:bg-gray-950 min-h-screen">
+      <div className="container mx-auto px-4 py-8 space-y-6 bg-background min-h-screen">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -308,7 +308,7 @@ const UsbDriveDetailPage: React.FC = () => {
               Back
             </Button>
             <div className="flex items-center gap-3">
-              <HardDrive className="w-8 h-8 text-blue-600" />
+              <HardDrive className="w-8 h-8 text-primary" />
               <div>
                 <h1 className="text-2xl font-bold">{drive.id}</h1>
                 <p className="text-muted-foreground">{drive.label || 'Unlabeled'}</p>
@@ -326,14 +326,14 @@ const UsbDriveDetailPage: React.FC = () => {
 
         {/* Success/Error Messages */}
         {success && (
-          <Alert className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20">
+          <Alert className="border-green-500/20 bg-green-500/10">
             <CheckCircle className="h-4 w-4" />
             <AlertDescription>{success}</AlertDescription>
           </Alert>
         )}
 
         {error && (
-          <Alert className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
+          <Alert className="border-destructive/20 bg-destructive/10">
             <XCircle className="h-4 w-4" />
             <AlertDescription>{error}</AlertDescription>
           </Alert>
@@ -341,7 +341,7 @@ const UsbDriveDetailPage: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Drive Information */}
-          <Card className="lg:col-span-1 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
+          <Card className="lg:col-span-1">
             <CardHeader>
               <CardTitle>Drive Information</CardTitle>
             </CardHeader>
@@ -386,7 +386,7 @@ const UsbDriveDetailPage: React.FC = () => {
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Security Settings */}
-            <Card className="bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700">
+            <Card>
               <CardHeader>
                 <CardTitle>Security Settings</CardTitle>
               </CardHeader>
@@ -414,16 +414,16 @@ const UsbDriveDetailPage: React.FC = () => {
                 
 {/* Show different alert messages based on drive encryption status */}
                 {drive.filesystem === 'LUKS Encrypted' || drive.filesystem === 'crypto_LUKS' ? (
-                  <Alert className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20">
-                    <AlertTriangle className="h-4 w-4 text-orange-600" />
+                  <Alert className="border-orange-500/20 bg-orange-500/10">
+                    <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                     <AlertDescription className="text-orange-800 dark:text-orange-200">
                       This drive is already encrypted. Using this option will completely wipe the existing encryption 
                       and all data, then create a new encrypted container with the settings below.
                     </AlertDescription>
                   </Alert>
                 ) : (
-                  <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20">
-                    <AlertTriangle className="h-4 w-4 text-blue-600" />
+                  <Alert className="border-blue-500/20 bg-blue-500/10">
+                    <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <AlertDescription className="text-blue-800 dark:text-blue-200">
                       This will format the drive and encrypt it with LUKS2 encryption. All existing data will be permanently lost.
                     </AlertDescription>
@@ -441,7 +441,7 @@ const UsbDriveDetailPage: React.FC = () => {
                         drive_name: e.target.value
                       }))}
                       placeholder="ZAP_Quantum_Vault"
-                      className="bg-white dark:bg-gray-800"
+                      className=""
                     />
                   </div>
                   <div>
@@ -453,7 +453,7 @@ const UsbDriveDetailPage: React.FC = () => {
                         encryption_type: value
                       }))}
                     >
-                      <SelectTrigger className="bg-white dark:bg-gray-800">
+                      <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -468,7 +468,7 @@ const UsbDriveDetailPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Password Input Section */}
-                  <div className="space-y-4 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="space-y-4 p-4 bg-card rounded-lg border">
                     <h4 className="font-medium text-sm">Encryption Password</h4>
                     <div>
                       <Label htmlFor="password">Password</Label>
@@ -534,7 +534,7 @@ const UsbDriveDetailPage: React.FC = () => {
                   </div>
 
                   {/* Password Generator Section */}
-                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="p-4 bg-card rounded-lg border">
                     <PasswordGeneratorCompact
                       onPasswordGenerated={(password) => {
                         setFormatOptions(prev => ({
@@ -642,7 +642,7 @@ const UsbDriveDetailPage: React.FC = () => {
                   </div>
 
                   {/* Protection Level Indicator */}
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="bg-blue-500/10 p-4 rounded-lg border border-blue-500/20">
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-2 h-2 rounded-full bg-blue-500"></div>
                       <span className="text-sm font-medium">Protection Level</span>
@@ -661,7 +661,7 @@ const UsbDriveDetailPage: React.FC = () => {
                 </div>
 
                 {formatProgress?.isActive && (
-                  <div className="space-y-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="space-y-4 p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{formatProgress.stage}</span>
                       <span>{formatProgress.progress}%</span>
@@ -692,7 +692,7 @@ const UsbDriveDetailPage: React.FC = () => {
                         formatOptions.password !== formatOptions.confirm_password ||
                         formatProgress?.isActive
                       }
-                      className="bg-orange-600 hover:bg-orange-700"
+                      className="bg-orange-600 hover:bg-orange-700 text-white"
                     >
                       {formatProgress?.isActive ? 'Resetting...' : 'Reset & Re-encrypt Drive'}
                     </Button>
@@ -705,7 +705,7 @@ const UsbDriveDetailPage: React.FC = () => {
                         formatOptions.password !== formatOptions.confirm_password ||
                         formatProgress?.isActive
                       }
-                      className="bg-red-600 hover:bg-red-700"
+                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                     >
                       {formatProgress?.isActive ? 'Encrypting...' : 'Format & Encrypt Drive'}
                     </Button>
@@ -715,7 +715,7 @@ const UsbDriveDetailPage: React.FC = () => {
             </Card>
 
             {/* Backup Management */}
-            <Card className="bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700">
+            <Card>
               <CardHeader>
                 <CardTitle>Backup Management</CardTitle>
               </CardHeader>

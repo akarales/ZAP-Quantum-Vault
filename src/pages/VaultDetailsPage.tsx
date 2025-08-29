@@ -133,14 +133,14 @@ const VaultDetailsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 text-white">
+      <div className="min-h-screen bg-background text-foreground">
         <div className="container mx-auto px-6 py-8">
           <div className="animate-pulse">
-            <div className="h-8 bg-gray-700 rounded w-1/4 mb-6"></div>
-            <div className="h-32 bg-gray-700 rounded mb-8"></div>
+            <div className="h-8 bg-muted rounded w-1/4 mb-6"></div>
+            <div className="h-32 bg-muted rounded mb-8"></div>
             <div className="space-y-4">
               {[...Array(5)].map((_, i) => (
-                <div key={i} className="h-16 bg-gray-700 rounded"></div>
+                <div key={i} className="h-16 bg-muted rounded"></div>
               ))}
             </div>
           </div>
@@ -153,11 +153,11 @@ const VaultDetailsPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="text-red-400 text-xl mb-4">Error loading vault details</div>
-          <div className="text-gray-400 mb-6">{error}</div>
+          <div className="text-destructive text-xl mb-4">Error loading vault details</div>
+          <div className="text-muted-foreground mb-6">{error}</div>
           <button
             onClick={() => navigate('/vaults')}
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition-colors"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded transition-colors"
           >
             Back to Vaults
           </button>
@@ -170,10 +170,10 @@ const VaultDetailsPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="text-gray-400 text-xl mb-6">Vault not found</div>
+          <div className="text-muted-foreground text-xl mb-6">Vault not found</div>
           <button
             onClick={() => navigate('/vaults')}
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition-colors"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded transition-colors"
           >
             Back to Vaults
           </button>
@@ -183,14 +183,14 @@ const VaultDetailsPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-6 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center space-x-4">
             <button
               onClick={() => navigate('/vaults')}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -198,20 +198,20 @@ const VaultDetailsPage: React.FC = () => {
               <h1 className="text-3xl font-bold">{vault.name}</h1>
               <div className="flex items-center space-x-4 text-sm text-gray-400 mt-1">
                 <span className="capitalize">{vault.vault_type}</span>
-                {vault.is_default && <span className="text-blue-400">Default</span>}
-                {vault.is_system_default && <span className="text-green-400">System</span>}
-                {vault.is_shared && <span className="text-yellow-400">Shared</span>}
+                {vault.is_default && <span className="text-primary">Default</span>}
+                {vault.is_system_default && <span className="text-green-500">System</span>}
+                {vault.is_shared && <span className="text-yellow-500">Shared</span>}
               </div>
             </div>
           </div>
         </div>
 
         {/* Vault Info */}
-        <div className="bg-gray-800 rounded-lg p-6 mb-8">
+        <div className="bg-card border rounded-lg p-6 mb-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <h3 className="text-lg font-semibold mb-2">Description</h3>
-              <p className="text-gray-300">{vault.description || 'No description provided'}</p>
+              <p className="text-card-foreground">{vault.description || 'No description provided'}</p>
             </div>
             <div>
               <h3 className="text-lg font-semibold mb-2">Statistics</h3>
@@ -249,18 +249,18 @@ const VaultDetailsPage: React.FC = () => {
                 placeholder="Search keys..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                className="w-full bg-input border border-border rounded-lg px-4 py-2 text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
-            <div className="text-sm text-gray-400">
+            <div className="text-sm text-muted-foreground">
               {filteredItems.length} of {items.length} keys
             </div>
           </div>
         </div>
 
         {/* Keys Section */}
-        <div className="bg-gray-800 rounded-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-700">
+        <div className="bg-card border rounded-lg overflow-hidden">
+          <div className="px-6 py-4 border-b border-border">
             <h2 className="text-xl font-semibold flex items-center space-x-2">
               <Key className="w-5 h-5" />
               <span>Keys</span>
@@ -280,7 +280,7 @@ const VaultDetailsPage: React.FC = () => {
                 {bitcoinKeys.map((key) => (
                   <div
                     key={key.id}
-                    className="px-6 py-4 border-b border-gray-700 last:border-b-0 hover:bg-gray-750 transition-colors group"
+                    className="px-6 py-4 border-b border-border last:border-b-0 hover:bg-muted/50 transition-colors group"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
@@ -291,20 +291,20 @@ const VaultDetailsPage: React.FC = () => {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center space-x-2">
                               <h4 className="text-base font-medium truncate">{key.address}</h4>
-                              <span className="text-xs bg-gray-700 px-2 py-1 rounded capitalize">
+                              <span className="text-xs bg-secondary text-secondary-foreground px-2 py-1 rounded capitalize">
                                 {key.keyType}
                               </span>
-                              <span className="text-xs bg-blue-600 px-2 py-1 rounded">
+                              <span className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded">
                                 {key.network}
                               </span>
                               {key.quantumEnhanced && (
-                                <span className="text-xs bg-purple-600 px-2 py-1 rounded flex items-center space-x-1">
+                                <span className="text-xs bg-purple-600 text-white px-2 py-1 rounded flex items-center space-x-1">
                                   <Shield className="w-3 h-3" />
                                   <span>Quantum</span>
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center space-x-4 text-sm text-gray-400 mt-1">
+                            <div className="flex items-center space-x-4 text-sm text-muted-foreground mt-1">
                               <div className="flex items-center space-x-1">
                                 <Clock className="w-3 h-3" />
                                 <span>{formatDate(key.createdAt)}</span>
@@ -318,7 +318,7 @@ const VaultDetailsPage: React.FC = () => {
                       <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleCopyToClipboard(key.address)}
-                          className="p-2 hover:bg-gray-600 rounded transition-colors"
+                          className="p-2 hover:bg-muted rounded transition-colors"
                           title="Copy Address"
                         >
                           <Copy className="w-4 h-4" />
@@ -342,7 +342,7 @@ const VaultDetailsPage: React.FC = () => {
               </div>
               
               {filteredItems.length === 0 ? (
-                <div className="p-8 text-center text-gray-400">
+                <div className="p-8 text-center text-muted-foreground">
                   <div>No vault items match your search criteria</div>
                 </div>
               ) : (
@@ -402,7 +402,7 @@ const VaultDetailsPage: React.FC = () => {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        className="p-2 hover:bg-red-600 rounded transition-colors"
+                        className="p-2 hover:bg-destructive rounded transition-colors"
                         title="Delete"
                       >
                         <Trash2 className="w-4 h-4" />

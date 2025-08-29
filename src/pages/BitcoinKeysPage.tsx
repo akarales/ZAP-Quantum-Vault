@@ -677,7 +677,7 @@ export const BitcoinKeysPage = () => {
                 ) : (
                   <div className="space-y-4">
                     {bitcoinKeys.map((key) => (
-                      <Card key={key.id} className="border-l-4 border-l-orange-500">
+                      <Card key={key.id} className="border-l-4 border-l-orange-500 bg-card/80 dark:bg-card/60 backdrop-blur-sm">
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">

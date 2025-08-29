@@ -76,37 +76,37 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-background to-muted flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center space-x-3 mb-4">
-            <Shield className="h-10 w-10 text-blue-400" />
-            <h1 className="text-4xl font-bold text-white">ZAP Quantum Vault</h1>
+            <Shield className="h-10 w-10 text-primary" />
+            <h1 className="text-4xl font-bold text-foreground">ZAP Quantum Vault</h1>
           </div>
-          <p className="text-slate-300">Secure cryptographic key management system</p>
+          <p className="text-muted-foreground">Secure cryptographic key management system</p>
         </div>
 
-        <Card className="bg-slate-800/50 border-slate-700">
+        <Card className="bg-card/80 border-border">
           <CardHeader>
-            <CardTitle className="text-white text-center">Authentication</CardTitle>
-            <CardDescription className="text-slate-300 text-center">
+            <CardTitle className="text-card-foreground text-center">Authentication</CardTitle>
+            <CardDescription className="text-muted-foreground text-center">
               Sign in to your account or create a new one
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs value={isLogin ? "login" : "register"} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 bg-slate-700">
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger 
                   value="login" 
                   onClick={() => setIsLogin(true)}
-                  className="text-slate-200 data-[state=active]:bg-slate-600 data-[state=active]:text-white"
+                  className=""
                 >
                   Sign In
                 </TabsTrigger>
                 <TabsTrigger 
                   value="register" 
                   onClick={() => setIsLogin(false)}
-                  className="text-slate-200 data-[state=active]:bg-slate-600 data-[state=active]:text-white"
+                  className=""
                 >
                   Register
                 </TabsTrigger>
@@ -121,7 +121,7 @@ export const AuthPage: React.FC = () => {
                       onChange={(e) => setLoginUsername(e.target.value)}
                       placeholder="Username"
                       required
-                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                      className=""
                     />
                   </div>
                   <div className="space-y-2">
@@ -131,12 +131,12 @@ export const AuthPage: React.FC = () => {
                       onChange={(e) => setLoginPassword(e.target.value)}
                       placeholder="Password"
                       required
-                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                      className=""
                     />
                   </div>
                   <Button 
                     type="submit" 
-                    className="w-full bg-blue-600 hover:bg-blue-700"
+                    className="w-full"
                     disabled={loading}
                   >
                     {loading ? 'Signing In...' : 'Sign In'}
@@ -153,7 +153,7 @@ export const AuthPage: React.FC = () => {
                       onChange={(e) => setUsername(e.target.value)}
                       placeholder="Username"
                       required
-                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                      className=""
                     />
                   </div>
                   <div className="space-y-2">
@@ -163,7 +163,7 @@ export const AuthPage: React.FC = () => {
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="Email"
                       required
-                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                      className=""
                     />
                   </div>
                   <div className="space-y-2">
@@ -173,7 +173,7 @@ export const AuthPage: React.FC = () => {
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Password"
                       required
-                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                      className=""
                     />
                   </div>
                   <div className="space-y-2">
@@ -183,12 +183,12 @@ export const AuthPage: React.FC = () => {
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Confirm Password"
                       required
-                      className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                      className=""
                     />
                   </div>
                   <Button 
                     type="submit" 
-                    className="w-full bg-blue-600 hover:bg-blue-700"
+                    className="w-full"
                     disabled={loading}
                   >
                     {loading ? 'Creating Account...' : 'Create Account'}
@@ -198,25 +198,25 @@ export const AuthPage: React.FC = () => {
             </Tabs>
 
             {message && (
-              <Alert className="mt-6 bg-blue-900/50 border-blue-700">
-                <AlertDescription className="text-blue-200">
+              <Alert className="mt-6">
+                <AlertDescription>
                   {message}
                 </AlertDescription>
               </Alert>
             )}
 
             {/* Clear Users Button for Development */}
-            <div className="mt-6 pt-6 border-t border-slate-600">
+            <div className="mt-6 pt-6 border-t border-border">
               <Button 
                 variant="outline" 
                 onClick={handleClearUsers}
                 disabled={clearingUsers}
-                className="w-full border-red-600 text-red-400 hover:bg-red-900/20"
+                className="w-full border-destructive text-destructive hover:bg-destructive/10"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 {clearingUsers ? 'Clearing Users...' : 'Clear All Users (Dev)'}
               </Button>
-              <p className="text-xs text-slate-400 text-center mt-2">
+              <p className="text-xs text-muted-foreground text-center mt-2">
                 Development tool: Next user to register becomes admin
               </p>
             </div>

@@ -13,6 +13,7 @@ import VaultDetailsPage from '@/pages/VaultDetailsPage';
 import KeyDetailsPage from '@/pages/KeyDetailsPage';
 import { ColdStoragePage } from '@/pages/ColdStoragePage';
 import UsbDriveDetailPage from '@/pages/UsbDriveDetailPage';
+import { ThemeDemo } from '@/pages/ThemeDemo';
 import { MainLayout } from '@/components/layout/MainLayout';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -192,6 +193,12 @@ export const AppRouter: React.FC = () => {
         <Route path="/settings" element={
           <ProtectedRoute>
             <SettingsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/theme-demo" element={
+          <ProtectedRoute>
+            <ThemeDemo />
           </ProtectedRoute>
         } />
         
