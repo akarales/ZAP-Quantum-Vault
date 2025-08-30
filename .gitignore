@@ -38,3 +38,6 @@ src-tauri/vault.db-wal
 
 # Build artifacts
 src-tauri/gen/
+
+# Documentation
+docs/
