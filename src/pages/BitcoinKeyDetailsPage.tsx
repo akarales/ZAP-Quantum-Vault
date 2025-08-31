@@ -523,7 +523,7 @@ export const BitcoinKeyDetailsPage = () => {
                       Additional Receiving Addresses ({receivingAddresses.length})
                     </div>
                     
-                    {receivingAddresses.map((address, index) => (
+                    {receivingAddresses.map((address) => (
                       <Card key={address.id} className="border-l-4 border-l-blue-500 bg-card/80 dark:bg-card/60">
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">

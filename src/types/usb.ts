@@ -10,6 +10,8 @@ export interface UsbDrive {
   trust_level: 'trusted' | 'untrusted' | 'blocked';
   last_backup?: string | null;
   backup_count: number;
+  is_removable?: boolean;
+  last_seen?: string;
 }
 
 export interface UsbDrivePassword {
@@ -38,6 +40,8 @@ export interface MountResult {
   success: boolean;
   message: string;
   mount_point?: string;
+  error_code?: string;
+  details?: string;
 }
 
 export interface FormatProgress {

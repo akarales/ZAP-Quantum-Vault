@@ -3,6 +3,7 @@ use sqlx::{SqlitePool, migrate::MigrateDatabase, Sqlite};
 use crate::crypto::{hash_password};
 use uuid::Uuid;
 use tauri::Manager;
+use base64::{Engine, engine::general_purpose};
 
 pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) -> Result<SqlitePool> {
     // Use Tauri's app data directory - the proper way for production apps
@@ -68,14 +69,32 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
         "CREATE TABLE IF NOT EXISTS vault_items (
             id TEXT PRIMARY KEY,
             vault_id TEXT NOT NULL,
-            item_type TEXT NOT NULL,
             title TEXT NOT NULL,
+            item_type TEXT NOT NULL,
             encrypted_data TEXT NOT NULL,
             metadata TEXT,
             tags TEXT,
+            is_deleted BOOLEAN DEFAULT FALSE,
+            deleted_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (vault_id) REFERENCES vaults (id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS vault_passwords (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            vault_id TEXT NOT NULL,
+            vault_name TEXT NOT NULL,
+            encrypted_password TEXT NOT NULL,
+            password_hint TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(user_id, vault_id)
         )"
     )
     .execute(&pool)
@@ -220,6 +239,72 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
     )
     .execute(&pool)
     .await?;
+
+    // USB drives trust levels
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS usb_drives (
+            id TEXT PRIMARY KEY,
+            trust_level TEXT NOT NULL DEFAULT 'untrusted',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // Cold storage drives registry
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cold_storage_drives (
+            id TEXT PRIMARY KEY,
+            drive_label TEXT NOT NULL,
+            device_path TEXT NOT NULL,
+            drive_uuid TEXT UNIQUE NOT NULL,
+            encryption_key_hash TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_connected DATETIME,
+            is_active BOOLEAN DEFAULT TRUE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // Vault backups on cold storage
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS vault_cold_backups (
+            id TEXT PRIMARY KEY,
+            vault_id TEXT NOT NULL,
+            drive_id TEXT NOT NULL,
+            backup_path TEXT NOT NULL,
+            backup_version INTEGER NOT NULL,
+            encrypted_vault_data BLOB NOT NULL,
+            backup_metadata TEXT NOT NULL, -- JSON
+            checksum TEXT NOT NULL,
+            backup_size_bytes INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            verification_status TEXT DEFAULT 'pending', -- 'pending', 'verified', 'failed'
+            FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // Cold storage access logs
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cold_storage_access_logs (
+            id TEXT PRIMARY KEY,
+            drive_id TEXT NOT NULL,
+            operation_type TEXT NOT NULL, -- 'backup', 'restore', 'verify', 'mount', 'unmount'
+            vault_id TEXT,
+            success BOOLEAN NOT NULL,
+            error_message TEXT,
+            duration_ms INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (drive_id) REFERENCES cold_storage_drives(id) ON DELETE CASCADE,
+            FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE SET NULL
+        )"
+    )
+    .execute(&pool)
+    .await?;
     
     // Seed database with admin user and test data
     seed_database(&pool).await?;
@@ -229,19 +314,57 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
 }
 
 async fn seed_database(pool: &SqlitePool) -> Result<()> {
+    println!("🌱 Starting database seeding process...");
     let now = chrono::Utc::now().to_rfc3339();
     
     // Check if admin user already exists
+    println!("🔍 Checking for existing admin user...");
     let existing_admin = sqlx::query("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
         .fetch_optional(pool)
         .await?;
     
     if existing_admin.is_some() {
-        println!("Admin user already exists, skipping seed");
+        println!("👤 Admin user already exists, skipping seed");
+        
+        // Also check if default_user exists (this is critical for vault creation)
+        println!("🔍 Checking for default_user...");
+        let default_user = sqlx::query("SELECT id FROM users WHERE id = 'default_user' OR username = 'default_user'")
+            .fetch_optional(pool)
+            .await?;
+            
+        if default_user.is_none() {
+            println!("⚠️ WARNING: default_user does not exist! This will cause vault creation to fail.");
+            println!("🔧 Creating default_user for offline vault operations...");
+            
+            let default_user_id = "default_user";
+            let (password_hash, salt) = crate::crypto::hash_password("default123")?;
+            
+            sqlx::query(
+                "INSERT INTO users (id, username, email, password_hash, salt, role, is_active, mfa_enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(default_user_id)
+            .bind("default_user")
+            .bind("default@vault.local")
+            .bind(&password_hash)
+            .bind(&salt)
+            .bind("user")
+            .bind(true)
+            .bind(false)
+            .bind(&now)
+            .bind(&now)
+            .execute(pool)
+            .await?;
+            
+            println!("✅ Created default_user successfully");
+        } else {
+            println!("✅ default_user exists");
+        }
+        
         return Ok(());
     }
     
     // Create the single admin user - this is the only admin account allowed
+    println!("👤 Creating admin user...");
     let admin_id = Uuid::new_v4().to_string();
     let (password_hash, salt) = hash_password("admin123")?;
     
@@ -261,23 +384,28 @@ async fn seed_database(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await?;
     
-    // Create default vault for admin (only admin gets a vault initially)
-    let admin_vault_id = Uuid::new_v4().to_string();
+    // Also create the default_user for offline operations
+    println!("👤 Creating default_user for offline operations...");
+    let default_user_id = "default_user";
+    let (default_password_hash, default_salt) = hash_password("default123")?;
+    
     sqlx::query(
-        "INSERT INTO vaults (id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO users (id, username, email, password_hash, salt, role, is_active, mfa_enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .bind(&admin_vault_id)
-    .bind(&admin_id)
-    .bind("default_vault")
-    .bind("Default vault for secure storage")
-    .bind("personal")
-    .bind(false)
+    .bind(default_user_id)
+    .bind("default_user")
+    .bind("default@vault.local")
+    .bind(&default_password_hash)
+    .bind(&default_salt)
+    .bind("user")
     .bind(true)
     .bind(false)
     .bind(&now)
     .bind(&now)
     .execute(pool)
     .await?;
+    
+    // Note: Default vault will be created by VaultService when first needed
     
     println!("✅ Created default admin user:");
     println!("   Username: admin");
@@ -286,7 +414,13 @@ async fn seed_database(pool: &SqlitePool) -> Result<()> {
     println!("   Role: admin");
     println!("   Vault: default_vault (default)");
     println!("");
-    println!("🔐 This is the ONLY admin account. Use these credentials to sign in.");
+    println!("✅ Created default_user for offline operations:");
+    println!("   Username: default_user");
+    println!("   Password: default123");
+    println!("   Email: default@vault.local");
+    println!("   Role: user");
+    println!("");
+    println!("🔐 Both accounts are ready for vault operations.");
     
     Ok(())
 }

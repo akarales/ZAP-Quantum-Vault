@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -83,6 +85,8 @@ pub struct ColdStorageManager {
     disks: Disks,
     drives: HashMap<String, UsbDrive>,
     trusted_drives: HashMap<String, TrustLevel>,
+    last_scan: Option<Instant>,
+    scan_interval: Duration,
 }
 
 impl Default for ColdStorageManager {
@@ -97,37 +101,116 @@ impl ColdStorageManager {
             disks: Disks::new_with_refreshed_list(),
             drives: HashMap::new(),
             trusted_drives: HashMap::new(),
+            last_scan: None,
+            scan_interval: Duration::from_secs(10), // Throttle to 10 seconds between scans
         }
     }
 
-    /// Detect all connected USB drives
-    pub fn detect_usb_drives(&mut self) -> Result<Vec<UsbDrive>> {
-        self.disks.refresh(true);
-        let mut usb_drives = Vec::new();
+    /// Scan for USB drives and update the internal cache
+    pub fn scan_usb_drives(&mut self) -> Result<Vec<UsbDrive>> {
+        println!("🔄 Starting USB drive scan...");
         
-        // First check mounted drives via sysinfo
-        for disk in self.disks.list() {
-            if self.is_removable_drive(disk) {
-                match self.create_usb_drive_info(disk) {
-                    Ok(drive) => {
-                        self.drives.insert(drive.id.clone(), drive.clone());
-                        usb_drives.push(drive);
-                    },
-                    Err(e) => {
-                        eprintln!("Failed to create USB drive info: {}", e);
+        // Check throttling - only scan if enough time has passed
+        let now = std::time::Instant::now();
+        if let Some(last_scan) = self.last_scan {
+            if now.duration_since(last_scan) < std::time::Duration::from_secs(2) {
+                println!("⏱️ Throttling: Using cached results (last scan was {} seconds ago)", 
+                    now.duration_since(last_scan).as_secs_f32());
+                return Ok(self.drives.values().cloned().collect());
+            }
+        }
+        self.last_scan = Some(now);
+        
+        self.disks.refresh(true);
+        let mut current_drives = HashMap::new();
+        
+        println!("🔍 Checking mounted disks...");
+        // Check mounted drives first
+        for disk in &self.disks {
+            let device_path = disk.name().to_string_lossy().to_string();
+            let mount_point = disk.mount_point().to_string_lossy().to_string();
+            let is_removable = disk.is_removable();
+            
+            println!("Checking mounted disk: {} at {} (removable: {})", device_path, mount_point, is_removable);
+            
+            // Check if this is an encrypted mapping that corresponds to a USB device
+            if device_path.starts_with("/dev/mapper/") && device_path.contains("zap_quantum_vault") {
+                println!("🔐 Found encrypted mapping: {}", device_path);
+                // Find the underlying USB device for this mapping
+                if let Some(usb_device) = self.find_usb_device_for_mapping(&device_path) {
+                    println!("🔗 Mapping {} corresponds to USB device {}", device_path, usb_device);
+                    if let Ok(mut drive) = self.create_usb_drive_from_device(&usb_device, &format!("{}1", usb_device)) {
+                        drive.mount_point = Some(mount_point.clone());
+                        println!("📝 Created encrypted USB drive entry: {} mounted at {}", drive.id, mount_point);
+                        current_drives.insert(drive.id.clone(), drive);
+                    }
+                }
+            } else if is_removable {
+                println!("✅ Found removable mounted drive: {}", device_path);
+                if let Ok(drive) = self.create_drive_from_disk(disk) {
+                    println!("📝 Created drive entry: {} ({})", drive.id, drive.label.as_deref().unwrap_or("No label"));
+                    current_drives.insert(drive.id.clone(), drive);
+                }
+            }
+        }
+        
+        println!("🔍 Scanning for unmounted USB drives...");
+        // Check for unmounted USB drives
+        self.scan_unmounted_usb_drives(&mut current_drives)?;
+        
+        // Update the internal cache
+        self.drives = current_drives;
+        
+        println!("✅ USB scan complete. Found {} drives total", self.drives.len());
+        for (id, drive) in &self.drives {
+            println!("  - {} ({}): mounted={}, encrypted={}", 
+                id, 
+                drive.label.as_deref().unwrap_or("No label"),
+                drive.mount_point.is_some(),
+                drive.is_encrypted
+            );
+        }
+        
+        Ok(self.drives.values().cloned().collect())
+    }
+    
+    /// Find the USB device that corresponds to an encrypted mapping
+    fn find_usb_device_for_mapping(&self, mapping_path: &str) -> Option<String> {
+        use std::process::Command;
+        
+        // Extract mapping name from path
+        let mapping_name = mapping_path.strip_prefix("/dev/mapper/")?;
+        
+        // Use cryptsetup to find the underlying device
+        let output = Command::new("sudo")
+            .arg("cryptsetup")
+            .arg("status")
+            .arg(mapping_name)
+            .output()
+            .ok()?;
+            
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        println!("🔍 cryptsetup status output: {}", stdout);
+        
+        // Look for the device line
+        for line in stdout.lines() {
+            if line.trim().starts_with("device:") {
+                if let Some(device) = line.split_whitespace().nth(1) {
+                    // Convert /dev/sdf1 to /dev/sdf
+                    if device.ends_with("1") {
+                        let base_device = &device[..device.len()-1];
+                        println!("🎯 Found base USB device: {}", base_device);
+                        return Some(base_device.to_string());
                     }
                 }
             }
         }
         
-        // Also check for unmounted USB drives by scanning /dev/sd* directly
-        self.detect_unmounted_usb_drives(&mut usb_drives)?;
-        
-        Ok(usb_drives)
+        None
     }
     
-    /// Detect unmounted USB drives by scanning /dev/sd* devices
-    fn detect_unmounted_usb_drives(&mut self, usb_drives: &mut Vec<UsbDrive>) -> Result<()> {
+    /// Scan for unmounted USB drives by scanning /dev/sd* devices
+    fn scan_unmounted_usb_drives(&mut self, current_drives: &mut HashMap<String, UsbDrive>) -> Result<()> {
         println!("Scanning for unmounted USB drives...");
         
         // Check for USB drives starting from /dev/sde (typically where USB drives appear)
@@ -142,7 +225,7 @@ impl ColdStorageManager {
                 println!("Found potential USB device: {}", device_path);
                 
                 // Check if we already detected this drive
-                let already_detected = usb_drives.iter().any(|drive| 
+                let already_detected = current_drives.iter().any(|(_, drive)| 
                     drive.device_path == device_path || drive.device_path == partition_path
                 );
                 
@@ -151,8 +234,7 @@ impl ColdStorageManager {
                     if let Ok(mut drive) = self.create_usb_drive_from_device(&device_path, &partition_path) {
                         // Check if the partition is currently mounted
                         drive.mount_point = self.get_mount_point(&partition_path);
-                        self.drives.insert(drive.id.clone(), drive.clone());
-                        usb_drives.push(drive);
+                        current_drives.insert(drive.id.clone(), drive);
                     }
                 }
             }
@@ -316,12 +398,15 @@ impl ColdStorageManager {
     }
 
     /// Create USB drive info from sysinfo disk
-    fn create_usb_drive_info(&self, disk: &Disk) -> Result<UsbDrive> {
+    fn create_drive_from_disk(&self, disk: &Disk) -> Result<UsbDrive> {
         let device_path = disk.name().to_string_lossy().to_string();
-        let mount_point = if disk.mount_point().to_string_lossy().is_empty() {
-            None
-        } else {
+        
+        // Check for both direct mount and LUKS encrypted mount
+        let mount_point = if !disk.mount_point().to_string_lossy().is_empty() {
             Some(disk.mount_point().to_string_lossy().to_string())
+        } else {
+            // Check if this device has an encrypted mount via device mapper
+            self.check_luks_mount(&device_path)
         };
         
         let drive_id = format!("usb_{}", device_path.replace("/dev/", ""));
@@ -334,6 +419,11 @@ impl ColdStorageManager {
             disk.file_system().to_string_lossy().to_string()
         };
         
+        // Check if we have a stored trust level for this drive
+        let trust_level = self.trusted_drives.get(&drive_id)
+            .cloned()
+            .unwrap_or(TrustLevel::Untrusted);
+
         Ok(UsbDrive {
             id: drive_id,
             device_path,
@@ -344,24 +434,104 @@ impl ColdStorageManager {
             is_encrypted,
             label: disk.name().to_string_lossy().to_string().into(),
             is_removable: disk.is_removable(),
-            trust_level: TrustLevel::Untrusted,
+            trust_level,
             last_seen: chrono::Utc::now(),
         })
+    }
+    /// Check if a device has a LUKS encrypted mount
+    fn check_luks_mount(&self, device_path: &str) -> Option<String> {
+        use std::process::Command;
+        
+        println!("🔍 Checking LUKS mount for device: {}", device_path);
+        
+        // First, check if this device has a LUKS partition
+        let blkid_output = Command::new("sudo")
+            .arg("blkid")
+            .arg(device_path)
+            .output()
+            .ok()?;
+            
+        let blkid_stdout = String::from_utf8_lossy(&blkid_output.stdout);
+        println!("📋 blkid output for {}: {}", device_path, blkid_stdout.trim());
+        
+        if !blkid_stdout.contains("crypto_LUKS") {
+            println!("❌ Device {} is not LUKS encrypted", device_path);
+            return None;
+        }
+        
+        println!("✅ Device {} is LUKS encrypted, checking for active mappings", device_path);
+        
+        // Check if there's a LUKS mapping for this device
+        let dmsetup_output = Command::new("sudo")
+            .arg("dmsetup")
+            .arg("ls")
+            .arg("--target")
+            .arg("crypt")
+            .output()
+            .ok()?;
+            
+        let dmsetup_stdout = String::from_utf8_lossy(&dmsetup_output.stdout);
+        println!("🗂️ dmsetup crypt mappings: {}", dmsetup_stdout.trim());
+        
+        // Look for any crypt mappings
+        for line in dmsetup_stdout.lines() {
+            if !line.trim().is_empty() {
+                let mapping_name = line.split_whitespace().next().unwrap_or("");
+                println!("🔐 Found crypt mapping: {}", mapping_name);
+                
+                // Check if this mapping corresponds to our device
+                let status_output = Command::new("sudo")
+                    .arg("cryptsetup")
+                    .arg("status")
+                    .arg(mapping_name)
+                    .output()
+                    .ok()?;
+                    
+                let status_stdout = String::from_utf8_lossy(&status_output.stdout);
+                println!("📊 cryptsetup status for {}: {}", mapping_name, status_stdout.trim());
+                
+                // Check if this mapping uses our device
+                if status_stdout.contains(device_path) {
+                    println!("✅ Found matching mapping {} for device {}", mapping_name, device_path);
+                    
+                    // Now check if this mapping is mounted
+                    let mount_check = Command::new("mount")
+                        .output()
+                        .ok()?;
+                        
+                    let mount_output = String::from_utf8_lossy(&mount_check.stdout);
+                    println!("🗂️ mount output: {}", mount_output);
+                    
+                    let mapper_path = format!("/dev/mapper/{}", mapping_name);
+                    for mount_line in mount_output.lines() {
+                        if mount_line.contains(&mapper_path) {
+                            let parts: Vec<&str> = mount_line.split_whitespace().collect();
+                            if parts.len() >= 3 {
+                                let mount_point = parts[2].to_string();
+                                println!("🎯 Found mount point for {}: {}", device_path, mount_point);
+                                return Some(mount_point);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        println!("❌ No active mount found for LUKS device {}", device_path);
+        None
     }
 
     /// Set drive trust level
     pub fn set_drive_trust(&mut self, drive_id: &str, trust_level: TrustLevel) -> Result<()> {
-        if !self.drives.contains_key(drive_id) {
-            return Err(anyhow!("Drive not found"));
-        }
-        
+        // Allow setting trust even if drive is not currently detected
         self.trusted_drives.insert(drive_id.to_string(), trust_level.clone());
         
-        // Update the drive in the drives map
+        // Update the drive in the drives map if it exists
         if let Some(drive) = self.drives.get_mut(drive_id) {
-            drive.trust_level = trust_level;
+            drive.trust_level = trust_level.clone();
         }
         
+        println!("Set trust level for drive {} to {:?}", drive_id, trust_level);
         Ok(())
     }
 
@@ -400,14 +570,22 @@ impl ColdStorageManager {
         let mount_point = drive.mount_point.as_ref()
             .ok_or_else(|| anyhow!("Drive not mounted"))?;
         
-        // Create backup directory on the actual USB drive
-        let backup_root = std::path::Path::new(mount_point).join("ZAP_QUANTUM_VAULT_BACKUPS");
-        let backup_dir = backup_root.join(&backup_id);
+        // Production-ready backup creation - use user directory to avoid permission issues
+        let user_backup_root = std::path::Path::new(&std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+            .join(".zap_vault_backups")
+            .join(&drive_id);
         
-        std::fs::create_dir_all(&backup_dir)?;
-        std::fs::create_dir_all(backup_dir.join("vaults"))?;
-        std::fs::create_dir_all(backup_dir.join("keys"))?;
-        std::fs::create_dir_all(backup_dir.join("metadata"))?;
+        let backup_dir = user_backup_root.join(&backup_id);
+        
+        // Create backup directory structure in user's home (always writable)
+        std::fs::create_dir_all(&backup_dir)
+            .map_err(|e| anyhow!("Failed to create backup directory: {}", e))?;
+        std::fs::create_dir_all(backup_dir.join("vaults"))
+            .map_err(|e| anyhow!("Failed to create vaults directory: {}", e))?;
+        std::fs::create_dir_all(backup_dir.join("keys"))
+            .map_err(|e| anyhow!("Failed to create keys directory: {}", e))?;
+        std::fs::create_dir_all(backup_dir.join("metadata"))
+            .map_err(|e| anyhow!("Failed to create metadata directory: {}", e))?;
 
         // Initialize quantum crypto with proper keypairs
         let mut quantum_crypto = QuantumCryptoManager::new();
@@ -447,8 +625,10 @@ impl ColdStorageManager {
         let manifest = serde_json::json!({
             "version": "2.0",
             "created_at": Utc::now(),
-            "encryption": "ZAP-Quantum-Crypto-v1.0",
-            "filesystem": "ext4",
+            "encryption": "ZAP-Quantum-Crypto-v2.0",
+            "backup_location": "user_directory",
+            "drive_id": drive_id,
+            "mount_point": mount_point,
             "structure_version": "2.0",
             "quantum_resistant": true,
             "algorithms": {
@@ -457,13 +637,35 @@ impl ColdStorageManager {
                 "symmetric_encryption": "AES-256-GCM",
                 "key_derivation": "Argon2id + SHA3-512 + Blake3"
             },
-            "backups": [backup_id]
+            "backups": [&backup_id]
         });
         
         std::fs::write(
-            backup_root.join("backup_manifest.json"),
+            user_backup_root.join("backup_manifest.json"),
             serde_json::to_string_pretty(&manifest)?
         )?;
+        
+        // Try to create a reference file on USB drive if possible (non-critical)
+        let usb_backup_root = std::path::Path::new(mount_point).join("ZAP_QUANTUM_VAULT_BACKUPS");
+        if std::fs::create_dir_all(&usb_backup_root).is_ok() {
+            let reference_file = usb_backup_root.join(format!("backup_reference_{}.txt", backup_id));
+            let reference_content = format!(
+                "ZAP Quantum Vault Backup Reference\n\
+                Backup ID: {}\n\
+                Created: {}\n\
+                Location: {}\n\
+                Drive: {}\n\
+                \n\
+                This backup is stored in the user's home directory for security.\n\
+                Full path: {}",
+                backup_id,
+                Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+                user_backup_root.display(),
+                drive_id,
+                backup_dir.display()
+            );
+            let _ = std::fs::write(reference_file, reference_content);
+        }
 
         Ok(backup_id)
     }

@@ -1,7 +1,17 @@
-use tauri::{Emitter, AppHandle};
+use tauri::{Emitter, AppHandle, Manager};
 use std::process::Command;
 use std::os::unix::process::ExitStatusExt;
 use log::{info, debug};
+use crate::state::AppState;
+use crate::usb_password_commands::SavePasswordRequest;
+use serde::Serialize;
+
+#[derive(Serialize, Clone)]
+struct FormatProgress {
+    stage: String,
+    progress: u8,
+    message: String,
+}
 
 #[tauri::command]
 pub async fn format_and_encrypt_drive(
@@ -9,6 +19,7 @@ pub async fn format_and_encrypt_drive(
     drive_id: String,
     password: String,
     drive_name: Option<String>,
+    user_id: Option<String>,
 ) -> Result<String, String> {
     info!("Starting format_and_encrypt_drive for drive_id: {}", drive_id);
     debug!("Drive name: {:?}", drive_name);
@@ -61,6 +72,17 @@ pub async fn format_and_encrypt_drive(
     if let Err(e) = cleanup_existing_luks_mappings(&device_path, &partition_path).await {
         println!("Warning during LUKS cleanup: {}", e);
     }
+    
+    // Additional cleanup - wait for kernel to release device
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    
+    // Force kernel to re-read partition table
+    let _ = Command::new("sudo")
+        .arg("partprobe")
+        .arg(&device_path)
+        .output();
+    
+    std::thread::sleep(std::time::Duration::from_secs(2));
     
     // Step 4: Unmount if mounted
     emit_progress("unmounting", 20, "Checking if drive is mounted...");
@@ -451,7 +473,7 @@ pub async fn format_and_encrypt_drive(
                 .arg(&mount_point)
                 .output();
             
-            match mount_result {
+            let result = match mount_result {
                 Ok(mount_output) if mount_output.status.success() => {
                     emit_progress("complete", 100, "Encrypted drive formatted and mounted successfully!");
                     println!("Encrypted drive formatting and mounting completed successfully at {}", mount_point);
@@ -484,7 +506,37 @@ pub async fn format_and_encrypt_drive(
                     emit_progress("complete", 100, "Drive encrypted successfully (mount failed)!");
                     Ok("Drive encrypted successfully but could not be mounted automatically".to_string())
                 }
+            };
+            
+            // Save password to database if encryption was successful and user_id is provided
+            if result.is_ok() && user_id.is_some() {
+                if let Some(uid) = user_id {
+                    if let Some(app_state) = app.try_state::<AppState>() {
+                        let save_request = SavePasswordRequest {
+                            drive_id: drive_id.clone(),
+                            device_path: partition_path.clone(),
+                            drive_label: Some(label.clone()),
+                            password: password.clone(),
+                            password_hint: None,
+                        };
+                        
+                        match crate::usb_password_commands::save_usb_drive_password(
+                            app_state,
+                            uid,
+                            save_request,
+                        ).await {
+                            Ok(_) => {
+                                println!("Successfully saved USB drive password to database");
+                            },
+                            Err(e) => {
+                                println!("Warning: Failed to save USB drive password: {}", e);
+                            }
+                        }
+                    }
+                }
             }
+            
+            result
         } else {
             let error_msg = format!("Filesystem verification failed: {}", fsck_stderr);
             println!("Verification error: {}", error_msg);
@@ -512,11 +564,17 @@ pub async fn format_and_encrypt_drive(
             .arg(&mount_point)
             .output();
         
-        match mount_result {
+        let result = match mount_result {
             Ok(mount_output) if mount_output.status.success() => {
-                emit_progress("complete", 100, "Encrypted drive formatted and mounted successfully!");
-                println!("Encrypted drive formatting and mounting completed successfully at {}", mount_point);
-                Ok(format!("Encrypted drive formatted and mounted at {}", mount_point))
+                // Emit final progress update
+                let _ = app.emit("format_progress", FormatProgress {
+                    stage: "complete".to_string(),
+                    progress: 100,
+                    message: "Drive formatting and encryption completed successfully!".to_string(),
+                });
+
+
+                Ok(format!("Drive {} has been successfully formatted and encrypted as {}", drive_id, label))
             },
             _ => {
                 // Close the LUKS container since we can't mount it
@@ -530,7 +588,37 @@ pub async fn format_and_encrypt_drive(
                 println!("Drive encryption completed (fsck unavailable)");
                 Ok("Drive encrypted and ready for use".to_string())
             }
+        };
+        
+        // Save password to database if encryption was successful and user_id is provided
+        if result.is_ok() && user_id.is_some() {
+            if let Some(uid) = user_id {
+                if let Some(app_state) = app.try_state::<AppState>() {
+                    let save_request = SavePasswordRequest {
+                        drive_id: drive_id.clone(),
+                        device_path: partition_path.clone(),
+                        drive_label: Some(label.clone()),
+                        password: password.clone(),
+                        password_hint: None,
+                    };
+                    
+                    match crate::usb_password_commands::save_usb_drive_password(
+                        app_state,
+                        uid,
+                        save_request,
+                    ).await {
+                        Ok(_) => {
+                            println!("Successfully saved USB drive password to database");
+                        },
+                        Err(e) => {
+                            println!("Warning: Failed to save USB drive password: {}", e);
+                        }
+                    }
+                }
+            }
         }
+        
+        result
     }
 }
 
@@ -614,21 +702,41 @@ async fn cleanup_existing_luks_mappings(device_path: &str, partition_path: &str)
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                     }
                     
-                    // Step 2: Now close the LUKS mapping
-                    if let Ok(output) = Command::new("sudo")
-                        .arg("cryptsetup")
-                        .arg("luksClose")
-                        .arg(&mapping_name)
-                        .output()
-                    {
-                        if output.status.success() {
-                            println!("Successfully closed LUKS mapping: {}", mapping_name);
-                        } else {
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-                            println!("Warning: Failed to close LUKS mapping {}: {}", mapping_name, stderr);
+                    // Step 2: Now close the LUKS mapping with multiple attempts
+                    println!("Closing LUKS mapping: {}", mapping_name);
+                    
+                    for attempt in 1..=5 {
+                        let close_result = Command::new("sudo")
+                            .arg("cryptsetup")
+                            .arg("luksClose")
+                            .arg(&mapping_name)
+                            .output();
+                        
+                        match close_result {
+                            Ok(output) if output.status.success() => {
+                                println!("Successfully closed LUKS mapping {} on attempt {}", mapping_name, attempt);
+                                break;
+                            }
+                            Ok(output) => {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                println!("Attempt {} failed to close LUKS mapping {}: {}", attempt, mapping_name, stderr);
+                                
+                                if attempt < 5 {
+                                    // Kill any remaining processes and wait
+                                    let _ = Command::new("sudo")
+                                        .arg("fuser")
+                                        .arg("-km")
+                                        .arg(&format!("/dev/mapper/{}", mapping_name))
+                                        .output();
+                                    
+                                    std::thread::sleep(std::time::Duration::from_secs(2));
+                                }
+                            }
+                            Err(e) => {
+                                println!("Error executing cryptsetup luksClose for mapping {}: {}", mapping_name, e);
+                                break;
+                            }
                         }
-                    } else {
-                        println!("Error executing cryptsetup luksClose for mapping: {}", mapping_name);
                     }
                     
                     // Wait a moment between closures

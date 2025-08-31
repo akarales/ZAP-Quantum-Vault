@@ -39,6 +39,7 @@ pub struct CreateVaultRequest {
     pub description: Option<String>,
     pub vault_type: String,
     pub is_shared: bool,
+    pub encryption_password: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

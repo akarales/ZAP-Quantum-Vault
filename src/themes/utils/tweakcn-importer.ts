@@ -5,25 +5,10 @@ export class TweakCNThemeImporter {
    * Import theme from TweakCN URL
    * Example: https://tweakcn.com/editor/theme?config=eyJ0aGVtZSI6ImRhcmsiLCJjb2xvcnMiOnt9fQ==
    */
-  static async importTheme(themeUrl: string): Promise<ThemeConfig> {
+  static async importTheme(_themeUrl: string): Promise<ThemeConfig> {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch theme: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      // TweakCN now provides OKLCH format natively
-      if (data.styles && data.styles.light) {
-        return this.convertTweakCNTheme(data);
-      }
-      
-      // Handle direct OKLCH theme format
-      if (data.colors) {
-        return data as ThemeConfig;
-      }
-      
+      // TODO: Implement theme import functionality
+      throw new Error('Theme import not yet implemented');
       throw new Error('Unsupported theme format');
     } catch (error) {
       console.error('Error importing theme:', error);

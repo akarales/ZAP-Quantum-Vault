@@ -110,6 +110,20 @@ pub async fn get_usb_drive_password(
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsbDrivePasswordWithPassword {
+    pub id: String,
+    pub user_id: String,
+    pub drive_id: String,
+    pub device_path: String,
+    pub drive_label: Option<String>,
+    pub password: String,
+    pub password_hint: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_used: Option<String>,
+}
+
 #[tauri::command]
 pub async fn get_user_usb_drive_passwords(
     state: State<'_, AppState>,
@@ -145,6 +159,51 @@ pub async fn get_user_usb_drive_passwords(
         .collect();
     
     Ok(passwords)
+}
+
+#[tauri::command]
+pub async fn get_user_usb_drive_passwords_with_passwords(
+    state: State<'_, AppState>,
+    user_id: String,
+) -> Result<Vec<UsbDrivePasswordWithPassword>, String> {
+    let pool = state.db.as_ref();
+    
+    let rows = sqlx::query(
+        "SELECT id, user_id, drive_id, device_path, drive_label, encrypted_password, password_hint, 
+         created_at, updated_at, last_used 
+         FROM usb_drive_passwords 
+         WHERE user_id = ? 
+         ORDER BY updated_at DESC"
+    )
+    .bind(&user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to retrieve passwords: {}", e))?;
+    
+    let mut passwords_with_decrypted: Vec<UsbDrivePasswordWithPassword> = Vec::new();
+    
+    for row in rows {
+        let encrypted_password: String = row.get("encrypted_password");
+        
+        // Decrypt the password
+        let decrypted_password = crate::crypto::decrypt_data(&encrypted_password)
+            .map_err(|e| format!("Failed to decrypt password: {}", e))?;
+        
+        passwords_with_decrypted.push(UsbDrivePasswordWithPassword {
+            id: row.get("id"),
+            user_id: row.get("user_id"),
+            drive_id: row.get("drive_id"),
+            device_path: row.get("device_path"),
+            drive_label: row.get("drive_label"),
+            password: decrypted_password,
+            password_hint: row.get("password_hint"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+            last_used: row.get("last_used"),
+        });
+    }
+    
+    Ok(passwords_with_decrypted)
 }
 
 #[tauri::command]

@@ -1,8 +1,9 @@
 use anyhow::Result;
-use sqlx::SqlitePool;
-use serde::{Deserialize, Serialize};
+use base64::{Engine as _, engine::general_purpose};
 use chrono::{DateTime, Utc};
+use sqlx::SqlitePool;
 use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,15 +51,29 @@ impl VaultService {
         Self { pool }
     }
 
-    /// Ensures a default vault exists and returns its ID
+    /// Ensure a default vault exists and return its ID
     pub async fn ensure_default_vault(&self) -> Result<String> {
-        // Check for any existing vault (admin vault should exist)
-        if let Some(vault) = self.find_any_vault().await? {
+        // First try to find system default vault
+        if let Some(vault) = self.find_system_default().await? {
             return Ok(vault.id);
         }
 
-        // This should not happen in normal operation since admin vault is created during seed
-        Err(anyhow::anyhow!("No vault found - database may not be properly initialized"))
+        // Get admin user ID
+        let admin_user_id = match sqlx::query_scalar::<_, String>("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+            .fetch_optional(&*self.pool)
+            .await?
+        {
+            Some(id) => id,
+            None => return Err(anyhow::anyhow!("No admin user found")),
+        };
+
+        // If no system default, find user default for admin
+        if let Some(vault) = self.find_user_default(&admin_user_id).await? {
+            return Ok(vault.id);
+        }
+
+        // If neither exists, create system default
+        self.create_system_default().await
     }
 
     /// Find system default vault (for offline mode)
@@ -175,26 +190,76 @@ impl VaultService {
 
     /// Create system default vault for offline mode
     async fn create_system_default(&self) -> Result<String> {
-        let vault_id = uuid::Uuid::new_v4().to_string();
+        // Use a transaction to ensure atomicity and prevent race conditions
+        let mut tx = self.pool.begin().await?;
+        
+        // Double-check if system default vault exists within transaction
+        let existing_vault = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM vaults WHERE is_system_default = true LIMIT 1"
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        
+        if let Some(vault_id) = existing_vault {
+            tx.rollback().await?;
+            return Ok(vault_id);
+        }
+
+        // Get admin user ID
+        let admin_user_id = match sqlx::query_scalar::<_, String>("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+            .fetch_optional(&mut *tx)
+            .await?
+        {
+            Some(id) => id,
+            None => {
+                tx.rollback().await?;
+                return Err(anyhow::anyhow!("No admin user found for system vault creation"));
+            }
+        };
+
+        let vault_id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
         
+        // Insert the vault
         sqlx::query(
-            "INSERT OR REPLACE INTO vaults (id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at) 
+            "INSERT INTO vaults (id, user_id, name, description, vault_type, is_shared, is_default, is_system_default, created_at, updated_at) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&vault_id)
-        .bind("system")
-        .bind("system_default")
+        .bind(&admin_user_id)
+        .bind("default_vault")
         .bind("System default vault for offline mode")
-        .bind("system")
+        .bind("Personal")
         .bind(false)
-        .bind(false)
+        .bind(true)
         .bind(true)
         .bind(now)
         .bind(now)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
 
+        // Create default password for the system vault
+        let default_password = "quantum_vault_2025";
+        let password_id = Uuid::new_v4().to_string();
+        let password_b64 = general_purpose::STANDARD.encode(default_password.as_bytes());
+        
+        sqlx::query(
+            "INSERT INTO vault_passwords (id, user_id, vault_id, vault_name, encrypted_password, password_hint, created_at, updated_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&password_id)
+        .bind(&admin_user_id)
+        .bind(&vault_id)
+        .bind("default_vault")
+        .bind(&password_b64)
+        .bind("System default vault password")
+        .bind(now)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        // Commit the transaction
+        tx.commit().await?;
         Ok(vault_id)
     }
 

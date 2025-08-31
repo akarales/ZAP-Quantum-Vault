@@ -1,34 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   ArrowLeft, 
   HardDrive, 
-  Loader2, 
   Lock, 
   Unlock, 
-  CheckCircle, 
-  XCircle, 
   AlertTriangle, 
-  Download, 
-  Settings, 
-  Eye, 
-  EyeOff 
+  CheckCircle, 
+  XCircle,
+  Loader2
 } from 'lucide-react';
-import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
-import { Progress } from '../components/ui/progress';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { Alert, AlertDescription } from '../components/ui/alert';
-import { UsbDrive } from '../types/usb';
-import { MountButton } from '../components/mount/MountButton';
-import { ErrorBoundary } from '../components/ui/ErrorBoundary';
-import { PasswordGeneratorCompact } from '../components/password/PasswordGeneratorCompact';
+import { UsbDrive } from '@/types/usb';
+import { getInvokeFunction } from '@/services/mockTauriService';
 
 // Type definitions
 interface FormatProgress {
@@ -54,83 +41,125 @@ const UsbDriveDetailPage: React.FC = () => {
   const { driveId } = useParams<{ driveId: string }>();
   const navigate = useNavigate();
   
+  // State management
   const [drive, setDrive] = useState<UsbDrive | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
   const [operationInProgress, setOperationInProgress] = useState(false);
+  const [invoke, setInvoke] = useState<any>(null);
   
-  // Dialog states
-  const [showBackupDialog, setShowBackupDialog] = useState(false);
-  const [showTrustDialog, setShowTrustDialog] = useState(false);
+  // User info state
+  const [userInfo, setUserInfo] = useState<any>(null);
   
+  // Format and encryption states
+  const [showFormatSection, setShowFormatSection] = useState(false);
+  const [formatOptions, setFormatOptions] = useState({
+    password: '',
+    confirm_password: '',
+    drive_name: '',
+    file_system: 'ext4'
+  });
   const [formatProgress, setFormatProgress] = useState<FormatProgress | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  // Form states
-  const [formatOptions, setFormatOptions] = useState({
-    drive_name: 'ZAP_Quantum_Vault',
-    password: '',
-    confirm_password: '',
-    encryption_type: 'basic_luks2',
-    key_derivation: 'argon2id',
-    quantum_entropy: true,
-    secure_erase_passes: 3,
-    filesystem: 'ext4',
-    quantum_algorithm: 'kyber1024',
-    post_quantum_signature: 'dilithium5',
-    zero_knowledge_proof: false,
-    quantum_compression: false,
-    forward_secrecy: false,
-    air_gap_security: false,
+  
+  // Re-encryption states
+  const [showReEncryptSection, setShowReEncryptSection] = useState(false);
+  const [reEncryptOptions, setReEncryptOptions] = useState({
+    current_password: '',
+    new_password: '',
+    confirm_new_password: ''
   });
-
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  
+  // Dialog states
+  const [showFormatDialog, setShowFormatDialog] = useState(false);
+  const [showReEncryptDialog, setShowReEncryptDialog] = useState(false);
+  
+  // Load user info
   const loadUserInfo = async () => {
+    if (!invoke) return;
     try {
-      const result = await invoke('get_current_user');
-      setCurrentUserId(result as string);
+      const result = await invoke('get_user_info');
+      setUserInfo(result);
     } catch (error) {
       console.error('Failed to load user info:', error);
     }
   };
-
+  
+  // Load drive data
   const loadDriveData = async () => {
-    if (!driveId) return;
+    if (!driveId || !invoke) return;
     
     try {
-      setLoading(true);
-      const driveData = await invoke('get_drive_details', { driveId });
-      setDrive(driveData as UsbDrive);
+      console.log('Loading drive data for driveId:', driveId);
+      console.log('Calling get_drive_details with parameter:', { drive_id: driveId });
+      
+      const result = await invoke('get_drive_details', { drive_id: driveId });
+      console.log('Drive data loaded successfully:', result);
+      setDrive(result as UsbDrive);
     } catch (error) {
       console.error('Failed to load drive data:', error);
-      setError(`Failed to load drive data: ${error}`);
+      console.log('Error details:', error);
+      setError('Failed to load drive information');
     } finally {
       setLoading(false);
     }
   };
 
+  // Initialize invoke function
   useEffect(() => {
-    loadUserInfo();
-    loadDriveData();
-  }, [driveId]);
+    const initInvoke = async () => {
+      const invokeFunc = await getInvokeFunction();
+      setInvoke(() => invokeFunc);
+    };
+    initInvoke();
+  }, []);
 
-  // Event listeners for progress updates
+  // Load data when invoke is available
   useEffect(() => {
-    const unlistenFormat = listen('format_progress', (event: any) => {
-      console.log('Format progress event received:', event.payload);
-      const { stage, progress, message } = event.payload;
-      setFormatProgress({
-        stage: stage || 'processing',
-        progress: progress || 0,
-        message: message || 'Processing...',
-        isActive: progress < 100
-      });
-    });
+    if (invoke) {
+      loadUserInfo();
+      loadDriveData();
+    }
+  }, [driveId, invoke]);
 
+  // Event listeners for progress updates (disabled for browser compatibility)
+  useEffect(() => {
+    // Skip event listeners in browser environment
+    if (typeof window !== 'undefined' && !(window as any).__TAURI__) {
+      return;
+    }
+    
+    // Only setup listeners in Tauri environment
+    const setupEventListeners = async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        const unlistenFormat = await listen('format_progress', (event: any) => {
+          console.log('Format progress event received:', event.payload);
+          const { stage, progress, message } = event.payload;
+          setFormatProgress({
+            stage: stage || 'processing',
+            progress: progress || 0,
+            message: message || 'Processing...',
+            isActive: progress < 100
+          });
+        });
+
+        return () => {
+          unlistenFormat();
+        };
+      } catch (error) {
+        console.log('Event listeners not available in browser environment');
+      }
+    };
+
+    const cleanup = setupEventListeners();
     return () => {
-      unlistenFormat.then(fn => fn());
+      cleanup.then(fn => fn && fn());
     };
   }, []);
 
@@ -177,10 +206,13 @@ const UsbDriveDetailPage: React.FC = () => {
       });
 
       console.log('Invoking format_and_encrypt_drive command for reset');
+      if (!invoke) {
+        throw new Error('Invoke function not available');
+      }
       const result = await invoke('format_and_encrypt_drive', {
-        driveId: drive.id,
+        drive_id: drive.id,
         password: formatOptions.password,
-        driveName: formatOptions.drive_name
+        drive_name: formatOptions.drive_name
       });
 
       console.log('Reset operation completed:', result);
@@ -222,10 +254,13 @@ const UsbDriveDetailPage: React.FC = () => {
       });
 
       console.log('Invoking format_and_encrypt_drive command');
+      if (!invoke) {
+        throw new Error('Invoke function not available');
+      }
       const result = await invoke('format_and_encrypt_drive', {
-        driveId: drive.id,
+        drive_id: drive.id,
         password: formatOptions.password,
-        driveName: formatOptions.drive_name
+        drive_name: formatOptions.drive_name
       });
 
       console.log('Format operation completed:', result);
@@ -281,9 +316,9 @@ const UsbDriveDetailPage: React.FC = () => {
               <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
               <h2 className="text-xl font-semibold mb-2">Drive Not Found</h2>
               <p className="text-muted-foreground mb-4">The requested USB drive could not be found.</p>
-              <Button onClick={() => navigate('/dashboard')}>
+              <Button onClick={() => navigate('/cold-storage')}>
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Dashboard
+                Back to Drives
               </Button>
             </div>
           </CardContent>
@@ -301,7 +336,7 @@ const UsbDriveDetailPage: React.FC = () => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/cold-storage')}
               className="flex items-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -544,119 +579,6 @@ const UsbDriveDetailPage: React.FC = () => {
                         }));
                       }}
                     />
-                  </div>
-                </div>
-
-                {/* Advanced Quantum Security Options */}
-                <div className="space-y-4 border-t pt-4">
-                  <h4 className="font-medium text-blue-600 dark:text-blue-400">🔬 Quantum Security Features</h4>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="quantum_entropy"
-                        checked={formatOptions.quantum_entropy}
-                        onChange={(e) => setFormatOptions(prev => ({
-                          ...prev,
-                          quantum_entropy: e.target.checked
-                        }))}
-                        className="rounded border-gray-300"
-                        disabled={formatOptions.encryption_type === 'basic_luks2'}
-                      />
-                      <div>
-                        <Label htmlFor="quantum_entropy" className="text-sm font-medium">
-                          Quantum Entropy Generation {formatOptions.encryption_type === 'basic_luks2' && '(Coming Soon)'}
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Use quantum random number generation for enhanced security
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="zero_knowledge_proof"
-                        checked={formatOptions.zero_knowledge_proof}
-                        onChange={(e) => setFormatOptions(prev => ({
-                          ...prev,
-                          zero_knowledge_proof: e.target.checked
-                        }))}
-                        className="rounded border-gray-300"
-                        disabled={formatOptions.encryption_type === 'basic_luks2'}
-                      />
-                      <div>
-                        <Label htmlFor="zero_knowledge_proof" className="text-sm font-medium">
-                          Zero-knowledge Proofs {formatOptions.encryption_type === 'basic_luks2' && '(Coming Soon)'}
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Verify encryption without revealing keys
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="quantum_compression"
-                        checked={formatOptions.quantum_compression}
-                        onChange={(e) => setFormatOptions(prev => ({
-                          ...prev,
-                          quantum_compression: e.target.checked
-                        }))}
-                        className="rounded border-gray-300"
-                        disabled={formatOptions.encryption_type === 'basic_luks2'}
-                      />
-                      <div>
-                        <Label htmlFor="quantum_compression" className="text-sm font-medium">
-                          Quantum Compression {formatOptions.encryption_type === 'basic_luks2' && '(Coming Soon)'}
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Quantum-enhanced data compression
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="air_gap_security"
-                        checked={formatOptions.air_gap_security}
-                        onChange={(e) => setFormatOptions(prev => ({
-                          ...prev,
-                          air_gap_security: e.target.checked
-                        }))}
-                        className="rounded border-gray-300"
-                        disabled={formatOptions.encryption_type === 'basic_luks2'}
-                      />
-                      <div>
-                        <Label htmlFor="air_gap_security" className="text-sm font-medium">
-                          Air-Gap Security Mode {formatOptions.encryption_type === 'basic_luks2' && '(Coming Soon)'}
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Enhanced isolation for maximum security
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Protection Level Indicator */}
-                  <div className="bg-blue-500/10 p-4 rounded-lg border border-blue-500/20">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                      <span className="text-sm font-medium">Protection Level</span>
-                    </div>
-                    <div className="text-sm text-blue-700 dark:text-blue-300">
-                      {formatOptions.encryption_type === 'basic_luks2'
-                        ? "🔒 Basic LUKS2 Encryption - Standard AES-256 protection (Available Now)"
-                        : formatOptions.quantum_entropy && formatOptions.zero_knowledge_proof && formatOptions.forward_secrecy
-                        ? "🔒 Maximum Quantum Resistance - Protected against quantum computer attacks"
-                        : formatOptions.quantum_entropy || formatOptions.zero_knowledge_proof
-                        ? "🔐 High Quantum Resistance - Strong protection with quantum features"
-                        : "⚠️ Basic Protection - Consider enabling quantum features for future-proofing"
-                      }
-                    </div>
                   </div>
                 </div>
 

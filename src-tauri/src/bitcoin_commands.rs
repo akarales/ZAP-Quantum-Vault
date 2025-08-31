@@ -2,10 +2,14 @@ use std::time::Instant;
 use tauri::State;
 use sqlx::{SqlitePool, Row};
 use base64::{Engine as _, engine::general_purpose};
-use crate::AppState;
-use crate::bitcoin_keys::{SimpleBitcoinKeyGenerator, BitcoinKeyType, BitcoinNetwork};
+use crate::models::{CreateVaultItemRequest, VaultItem};
+use crate::state::AppState;
+use crate::bitcoin_keys::{SimpleBitcoinKeyGenerator, BitcoinKey};
+use crate::bitcoin_keys_clean::{BitcoinKeyType, BitcoinNetwork};
 use crate::{log_error, log_info, log_bitcoin_event};
+use tauri::Emitter;
 use crate::logging::BitcoinKeyEvent;
+use uuid::Uuid;
 
 // Migration function to populate receiving_addresses for existing keys
 pub async fn migrate_existing_keys_to_receiving_addresses(_db: &SqlitePool) -> Result<(), String> {
@@ -175,6 +179,11 @@ pub async fn generate_bitcoin_key(
         }
     }
     
+    // Emit vault update event
+    if let Err(e) = emit_vault_update(&app_state.app_handle, effective_vault_id.clone()).await {
+        log_error!("bitcoin_commands", &format!("Failed to emit vault update event: {}", e));
+    }
+    
     // Also insert metadata record
     let label = format!("{} Key", key_type_str.to_uppercase());
     let description = format!("Quantum-enhanced {} key for {}", key_type_str, network_str);
@@ -189,6 +198,17 @@ pub async fn generate_bitcoin_key(
         Ok(_) => {},
         Err(e) => {
             log_error!("bitcoin_commands", &format!("Failed to store Bitcoin key metadata: {}", e));
+        }
+    }
+    
+    // Create vault item for Bitcoin key
+    match create_vault_item_for_bitcoin_key(db.as_ref(), &bitcoin_key, &effective_vault_id).await {
+        Ok(_) => {
+            log_info!("bitcoin_commands", &format!("Vault item created for Bitcoin key: {}", bitcoin_key.id));
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to create vault item for Bitcoin key: {}", e));
+            // Don't fail the entire operation, just log the error
         }
     }
     
@@ -209,6 +229,103 @@ pub async fn generate_bitcoin_key(
     log_info!("bitcoin_commands", &format!("Bitcoin key generated and stored successfully: {}", bitcoin_key.address));
     
     Ok(serde_json::to_string(&key_response).unwrap_or_else(|_| bitcoin_key.id))
+}
+
+// Emit vault update event
+async fn emit_vault_update(app_handle: &tauri::AppHandle, vault_id: String) -> Result<(), String> {
+    app_handle.emit("vault_updated", serde_json::json!({
+        "vaultId": vault_id,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })).map_err(|e| format!("Failed to emit event: {}", e))?;
+    
+    Ok(())
+}
+
+// Create vault item for Bitcoin key
+async fn create_vault_item_for_bitcoin_key(
+    db: &SqlitePool,
+    bitcoin_key: &BitcoinKey,
+    vault_id: &str,
+) -> Result<(), String> {
+    let vault_item_id = Uuid::new_v4().to_string();
+    let created_at = chrono::Utc::now().to_rfc3339();
+    
+    // Create encrypted data payload for vault item
+    let key_data = serde_json::json!({
+        "keyId": bitcoin_key.id,
+        "keyType": match bitcoin_key.key_type {
+            BitcoinKeyType::Legacy => "legacy",
+            BitcoinKeyType::SegWit => "segwit", 
+            BitcoinKeyType::Native => "native",
+            BitcoinKeyType::MultiSig => "multisig",
+            BitcoinKeyType::Taproot => "taproot",
+        },
+        "network": match bitcoin_key.network {
+            BitcoinNetwork::Mainnet => "mainnet",
+            BitcoinNetwork::Testnet => "testnet",
+            BitcoinNetwork::Regtest => "regtest",
+        },
+        "address": bitcoin_key.address,
+        "publicKey": general_purpose::STANDARD.encode(&bitcoin_key.public_key),
+        "entropySource": match bitcoin_key.entropy_source {
+            crate::bitcoin_keys::EntropySource::SystemRng => "system_rng",
+            crate::bitcoin_keys::EntropySource::QuantumEnhanced => "quantum_enhanced",
+            crate::bitcoin_keys::EntropySource::Hardware => "hardware",
+        },
+        "quantumEnhanced": bitcoin_key.quantum_enhanced,
+        "createdAt": bitcoin_key.created_at,
+        "derivationPath": bitcoin_key.derivation_path,
+        "isActive": bitcoin_key.is_active
+    });
+    
+    let encrypted_data = serde_json::to_string(&key_data)
+        .map_err(|e| format!("Failed to serialize key data: {}", e))?;
+    
+    let title = format!("{} {} Key", 
+        match bitcoin_key.key_type {
+            BitcoinKeyType::Legacy => "Legacy",
+            BitcoinKeyType::SegWit => "SegWit",
+            BitcoinKeyType::Native => "Native SegWit",
+            BitcoinKeyType::MultiSig => "MultiSig",
+            BitcoinKeyType::Taproot => "Taproot",
+        },
+        match bitcoin_key.network {
+            BitcoinNetwork::Mainnet => "Mainnet",
+            BitcoinNetwork::Testnet => "Testnet", 
+            BitcoinNetwork::Regtest => "Regtest",
+        }
+    );
+    
+    let metadata = format!("Bitcoin key - Address: {} | Quantum Enhanced: {}", 
+        bitcoin_key.address, 
+        bitcoin_key.quantum_enhanced
+    );
+    
+    let tags = if bitcoin_key.quantum_enhanced {
+        "bitcoin,key,quantum,cryptocurrency"
+    } else {
+        "bitcoin,key,cryptocurrency"
+    };
+    
+    // Insert vault item
+    sqlx::query(
+        "INSERT INTO vault_items (id, vault_id, item_type, title, encrypted_data, metadata, tags, created_at, updated_at, is_deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&vault_item_id)
+    .bind(vault_id)
+    .bind("bitcoin_key")
+    .bind(&title)
+    .bind(&encrypted_data)
+    .bind(&metadata)
+    .bind(tags)
+    .bind(&created_at)
+    .bind(&created_at)
+    .bind(false)
+    .execute(db)
+    .await
+    .map_err(|e| format!("Failed to create vault item: {}", e))?;
+    
+    Ok(())
 }
 
 #[tauri::command]

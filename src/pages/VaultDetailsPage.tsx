@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowLeft, Key, Eye, Edit, Trash2, Copy, Clock, Tag, Bitcoin, Shield } from 'lucide-react';
+import { ArrowLeft, Key, Eye, EyeOff, Edit, Trash2, Copy, Clock, Tag, Bitcoin, Shield } from 'lucide-react';
 
 interface Vault {
   id: string;
@@ -50,6 +50,8 @@ const VaultDetailsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [vaultPassword, setVaultPassword] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (vaultId) {
@@ -89,6 +91,17 @@ const VaultDetailsPage: React.FC = () => {
       } catch (keyError) {
         console.error('Failed to load Bitcoin keys:', keyError);
         setBitcoinKeys([]);
+      }
+
+      // Load vault password if available
+      try {
+        const password = await invoke<string | null>('get_vault_password_offline', {
+          vaultId: vaultId
+        });
+        setVaultPassword(password);
+      } catch (passwordError) {
+        console.error('Failed to load vault password:', passwordError);
+        setVaultPassword(null);
       }
     } catch (err) {
       console.error('Failed to load vault details:', err);
@@ -212,6 +225,35 @@ const VaultDetailsPage: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold mb-2">Description</h3>
               <p className="text-card-foreground">{vault.description || 'No description provided'}</p>
+              
+              {/* Vault Password Section */}
+              {vaultPassword && (
+                <div className="mt-4">
+                  <h4 className="text-md font-medium mb-2 flex items-center space-x-2">
+                    <Key className="w-4 h-4" />
+                    <span>Vault Password</span>
+                  </h4>
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-1 bg-muted rounded px-3 py-2 font-mono text-sm">
+                      {showPassword ? vaultPassword : '••••••••••••••••'}
+                    </div>
+                    <button
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="p-2 hover:bg-muted rounded transition-colors"
+                      title={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={() => handleCopyToClipboard(vaultPassword)}
+                      className="p-2 hover:bg-muted rounded transition-colors"
+                      title="Copy password"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <h3 className="text-lg font-semibold mb-2">Statistics</h3>

@@ -217,6 +217,20 @@ impl QuantumCryptoManager {
         })
     }
 
+    /// Simple encrypt method for string data
+    pub fn encrypt(&self, data: &str) -> Result<Vec<u8>> {
+        // Use a default password for internal encryption
+        let encrypted_data = self.encrypt_data(data.as_bytes(), "default_internal_key")?;
+        Ok(bincode::serialize(&encrypted_data)?)
+    }
+
+    /// Simple decrypt method for string data
+    pub fn decrypt(&self, encrypted_bytes: &[u8]) -> Result<String> {
+        let encrypted_data: QuantumEncryptedData = bincode::deserialize(encrypted_bytes)?;
+        let decrypted_bytes = self.decrypt_data(&encrypted_data, "default_internal_key")?;
+        Ok(String::from_utf8(decrypted_bytes)?)
+    }
+
     /// Decrypt data using post-quantum hybrid approach
     pub fn decrypt_data(&self, encrypted_data: &QuantumEncryptedData, password: &str) -> Result<Vec<u8>> {
         let kyber_sk = &self.kyber_keypair.as_ref()

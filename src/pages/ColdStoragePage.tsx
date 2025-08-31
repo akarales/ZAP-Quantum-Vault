@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getInvokeFunction } from '../services/mockTauriService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -51,17 +51,27 @@ export const ColdStoragePage = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [recoveryPhrase, setRecoveryPhrase] = useState('');
   const [activeTab, setActiveTab] = useState('drives');
-  
+  const [invoke, setInvoke] = useState<any>(null);
 
   useEffect(() => {
-    detectDrives();
+    getInvokeFunction().then(invokeFunc => {
+      setInvoke(() => invokeFunc);
+    });
   }, []);
 
+  useEffect(() => {
+    if (invoke) {
+      detectDrives();
+    }
+  }, [invoke]);
+
   const detectDrives = async () => {
+    if (!invoke) return;
+    
     setRefreshing(true);
     setError('');
     try {
-      const drives = await invoke<UsbDrive[]>('detect_usb_drives');
+      const drives = await invoke('detect_usb_drives');
       setUsbDrives(drives);
     } catch (err) {
       setError(`Failed to detect USB drives: ${err}`);
@@ -72,8 +82,10 @@ export const ColdStoragePage = () => {
 
 
   const handleSetTrust = async (driveId: string, trustLevel: string) => {
+    if (!invoke) return;
+    
     try {
-      await invoke('set_drive_trust', { driveId, trustLevel });
+      await invoke('set_drive_trust', { drive_id: driveId, trust_level: trustLevel });
       setUsbDrives(drives => 
         drives.map(drive => 
           drive.id === driveId 
@@ -97,8 +109,10 @@ export const ColdStoragePage = () => {
   };
 
   const handleEjectDrive = async (driveId: string) => {
+    if (!invoke) return;
+    
     try {
-      await invoke('eject_drive', { driveId });
+      await invoke('eject_drive', { drive_id: driveId });
       setUsbDrives(drives => drives.filter(drive => drive.id !== driveId));
       setSuccess('Drive ejected safely');
     } catch (err) {
@@ -107,17 +121,22 @@ export const ColdStoragePage = () => {
   };
 
   const handleRecoverFromPhrase = async () => {
+    if (!invoke) return;
+    
     if (!recoveryPhrase.trim()) {
       setError('Please enter a recovery phrase');
       return;
     }
-    
+
     setLoading(true);
     setError('');
-    
+    setSuccess('');
+
     try {
-      await invoke('recover_from_phrase', { phrase: recoveryPhrase });
-      setSuccess('Recovery completed successfully');
+      const recoveredData = await invoke('recover_from_phrase', {
+        phrase: recoveryPhrase.trim()
+      });
+      setSuccess(`Recovery successful! Recovered ${recoveredData.length} bytes of data`);
       setRecoveryPhrase('');
     } catch (err) {
       setError(`Recovery failed: ${err}`);
@@ -224,7 +243,10 @@ export const ColdStoragePage = () => {
                 <Card 
                   key={drive.id} 
                   className="cursor-pointer transition-all hover:shadow-md"
-                  onClick={() => navigate(`/cold-storage/drive/${encodeURIComponent(drive.id)}`)}
+                  onClick={() => {
+                    console.log('Navigating to drive:', drive.id);
+                    navigate(`/cold-storage/drive/${encodeURIComponent(drive.id)}`);
+                  }}
                 >
                   <CardHeader>
                     <div className="flex items-start justify-between">
@@ -282,9 +304,15 @@ export const ColdStoragePage = () => {
                       <div className="flex items-center gap-2 pt-2">
                         <Select
                           value={drive.trust_level.toLowerCase()}
-                          onValueChange={(value) => handleSetTrust(drive.id, value)}
+                          onValueChange={(value) => {
+                            // Prevent event bubbling to card click
+                            handleSetTrust(drive.id, value);
+                          }}
                         >
-                          <SelectTrigger className="flex-1">
+                          <SelectTrigger 
+                            className="flex-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -294,15 +322,17 @@ export const ColdStoragePage = () => {
                           </SelectContent>
                         </Select>
                         
-                        <MountButton
-                          drive={drive}
-                          onMountSuccess={(mountPoint) => handleMountSuccess(`Drive mounted at ${mountPoint}`)}
-                          onMountError={handleMountError}
-                          onUnmountSuccess={() => {
-                            handleMountSuccess('Drive unmounted successfully');
-                            detectDrives();
-                          }}
-                        />
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <MountButton
+                            drive={drive}
+                            onMountSuccess={(mountPoint) => handleMountSuccess(`Drive mounted at ${mountPoint}`)}
+                            onMountError={handleMountError}
+                            onUnmountSuccess={() => {
+                              handleMountSuccess('Drive unmounted successfully');
+                              detectDrives();
+                            }}
+                          />
+                        </div>
                         
                         <Button
                           variant="outline"

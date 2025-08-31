@@ -11,7 +11,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Vault, Lock, Share2, Calendar, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Plus, Vault, Lock, Share2, Calendar, Trash2, Eye, EyeOff, HardDrive, Copy, RefreshCw } from 'lucide-react';
+import { ColdStoragePasswordsSection } from '@/components/ColdStoragePasswordsSection';
+import { VaultPasswordsSection } from '@/components/VaultPasswordsSection';
 
 interface Vault {
   id: string;
@@ -43,6 +45,7 @@ interface CreateVaultRequest {
   description?: string;
   vault_type: string;
   is_shared: boolean;
+  encryption_password?: string;
 }
 
 interface CreateVaultItemRequest {
@@ -65,14 +68,19 @@ export default function VaultPage() {
   const [showCreateVault, setShowCreateVault] = useState(false);
   const [showCreateItem, setShowCreateItem] = useState(false);
   const [showItemData, setShowItemData] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState('vaults');
 
   // Create vault form state
   const [newVault, setNewVault] = useState<CreateVaultRequest>({
     name: '',
     description: '',
-    vault_type: 'personal',
-    is_shared: false
+    vault_type: 'Personal',
+    is_shared: false,
+    encryption_password: ''
   });
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState('');
 
   // Create item form state
   const [newItem, setNewItem] = useState<CreateVaultItemRequest>({
@@ -85,6 +93,32 @@ export default function VaultPage() {
   });
 
   const [tagInput, setTagInput] = useState('');
+
+  // Password generation utility
+  const generateSecurePassword = () => {
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?';
+    let password = '';
+    for (let i = 0; i < 32; i++) {
+      password += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    return password;
+  };
+
+  const handleGeneratePassword = () => {
+    const password = generateSecurePassword();
+    setGeneratedPassword(password);
+    setNewVault({ ...newVault, encryption_password: password });
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccess('Password copied to clipboard!');
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError('Failed to copy to clipboard');
+    }
+  };
 
   useEffect(() => {
     loadVaults();
@@ -166,9 +200,11 @@ export default function VaultPage() {
       setNewVault({
         name: '',
         description: '',
-        vault_type: 'personal',
-        is_shared: false
+        vault_type: 'Personal',
+        is_shared: false,
+        encryption_password: ''
       });
+      setGeneratedPassword('');
       
       await loadVaults();
     } catch (err) {
@@ -323,11 +359,59 @@ export default function VaultPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="personal">Personal</SelectItem>
-                    <SelectItem value="business">Business</SelectItem>
-                    <SelectItem value="shared">Shared</SelectItem>
+                    <SelectItem value="Personal">Personal</SelectItem>
+                    <SelectItem value="Business">Business</SelectItem>
+                    <SelectItem value="Shared">Shared</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="vault-password">Encryption Password</Label>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <Input
+                        id="vault-password"
+                        type={showPassword ? "text" : "password"}
+                        value={newVault.encryption_password || ''}
+                        onChange={(e) => setNewVault({ ...newVault, encryption_password: e.target.value })}
+                        placeholder="Enter or generate a secure password"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGeneratePassword}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                    {newVault.encryption_password && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyToClipboard(newVault.encryption_password || '')}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  {generatedPassword && (
+                    <div className="text-sm text-muted-foreground">
+                      <strong>Important:</strong> Save this password securely. You'll need it to access your vault.
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex items-center space-x-2">
@@ -346,7 +430,7 @@ export default function VaultPage() {
               <Button variant="outline" onClick={() => setShowCreateVault(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleCreateVault} disabled={loading || !newVault.name.trim()}>
+              <Button onClick={handleCreateVault} disabled={loading || !newVault.name.trim() || !newVault.encryption_password?.trim()}>
                 {loading ? 'Creating...' : 'Create Vault'}
               </Button>
             </DialogFooter>
@@ -372,14 +456,20 @@ export default function VaultPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="vaults" className="w-full">
-        <TabsList>
-          <TabsTrigger value="vaults">My Vaults ({vaults.length})</TabsTrigger>
-          {selectedVault && (
-            <TabsTrigger value="items">
-              {selectedVault.name} Items ({vaultItems.length})
-            </TabsTrigger>
-          )}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="vaults">Vaults</TabsTrigger>
+          <TabsTrigger value="items" disabled={!selectedVault}>
+            {selectedVault ? `Items (${selectedVault.name})` : 'Items'}
+          </TabsTrigger>
+          <TabsTrigger value="vault-passwords">
+            <Lock className="h-4 w-4 mr-2" />
+            Vault Passwords
+          </TabsTrigger>
+          <TabsTrigger value="usb-passwords">
+            <HardDrive className="h-4 w-4 mr-2" />
+            USB Passwords
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="vaults" className="space-y-4">
@@ -567,7 +657,18 @@ export default function VaultPage() {
                             {item.title}
                             <Badge variant="outline">{item.item_type}</Badge>
                           </CardTitle>
-                          {item.metadata && (
+                          {item.item_type === 'bitcoin_key' ? (
+                            <CardDescription className="mt-1 font-mono text-sm">
+                              {(() => {
+                                try {
+                                  const keyData = JSON.parse(item.encrypted_data);
+                                  return keyData.address || 'Address not available';
+                                } catch {
+                                  return 'Address not available';
+                                }
+                              })()}
+                            </CardDescription>
+                          ) : item.metadata && (
                             <CardDescription className="mt-1">
                               {item.metadata}
                             </CardDescription>
@@ -620,6 +721,14 @@ export default function VaultPage() {
             )}
           </TabsContent>
         )}
+
+        <TabsContent value="vault-passwords" className="space-y-4">
+          <VaultPasswordsSection userId="admin" />
+        </TabsContent>
+
+        <TabsContent value="usb-passwords" className="space-y-4">
+          <ColdStoragePasswordsSection userId="admin" />
+        </TabsContent>
       </Tabs>
     </div>
   );

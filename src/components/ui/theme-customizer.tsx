@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Button } from './button';
 import { Input } from './input';
 import { Label } from './label';
@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './car
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs';
 import { Badge } from './badge';
 import { useTheme } from '../../themes/ThemeManager';
-import { Download, Upload, Palette, RotateCcw, Copy, Check } from 'lucide-react';
+import { Upload, Palette, RotateCcw, Copy, Check } from 'lucide-react';
 import { defaultThemes } from '../../themes/configs/default-themes';
 
 export function ThemeCustomizer() {
@@ -75,7 +75,7 @@ export function ThemeCustomizer() {
 
           <TabsContent value="presets" className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {availableThemes.map((theme) => (
+              {Array.isArray(availableThemes) ? availableThemes.map((theme: any) => (
                 <Card
                   key={theme.id}
                   className={`cursor-pointer transition-all hover:shadow-md ${
@@ -91,7 +91,7 @@ export function ThemeCustomizer() {
                   </CardHeader>
                   <CardContent className="pt-0">
                     <div className="flex flex-wrap gap-1 mb-3">
-                      {theme.metadata?.tags?.map((tag) => (
+                      {theme.metadata?.tags?.map((tag: string) => (
                         <Badge key={tag} variant="secondary" className="text-xs">
                           {tag}
                         </Badge>
@@ -117,7 +117,7 @@ export function ThemeCustomizer() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              )) : null}
             </div>
           </TabsContent>
 

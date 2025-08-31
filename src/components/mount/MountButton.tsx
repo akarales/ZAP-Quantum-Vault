@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '../ui/button';
-import { HardDrive, Lock } from 'lucide-react';
+import { HardDrive, Lock, Unlock } from 'lucide-react';
 import { UsbDrive } from '../../types/usb';
 import { useUsbDrive } from '../../hooks/useUsbDrive';
 import { useUsbPasswords } from '../../hooks/useUsbPasswords';
@@ -36,22 +36,11 @@ export const MountButton = ({
   const isEncrypted = drive.is_encrypted;
 
   const handleMount = async () => {
-    if (isMounted) {
-      // Unmount
-      const result = await unmountDrive(drive.device_path);
-      if (result.success) {
-        onUnmountSuccess?.();
-      } else {
-        onMountError?.(result.message);
-      }
-      return;
-    }
-
     if (!isEncrypted) {
       // Mount unencrypted drive
       const result = await mountDrive(drive.device_path);
-      if (result.success && result.mount_point) {
-        onMountSuccess?.(result.mount_point);
+      if (result.success) {
+        onMountSuccess?.(result.mount_point || result.message);
       } else {
         onMountError?.(result.message);
       }
@@ -61,14 +50,28 @@ export const MountButton = ({
     // Try auto-mount with saved password first
     if (userId) {
       const autoResult = await mountEncryptedDriveAuto(drive.device_path, userId);
-      if (autoResult.success && autoResult.mount_point) {
-        onMountSuccess?.(autoResult.mount_point);
+      if (autoResult.success) {
+        onMountSuccess?.(autoResult.mount_point || autoResult.message);
+        return;
+      }
+      // If auto-mount failed but not due to missing password, show error
+      if (autoResult.error_code !== 'NO_STORED_PASSWORD') {
+        onMountError?.(autoResult.message);
         return;
       }
     }
 
     // Show password dialog for manual entry
     setShowPasswordDialog(true);
+  };
+
+  const handleUnmount = async () => {
+    const result = await unmountDrive(drive.device_path);
+    if (result.success) {
+      onUnmountSuccess?.();
+    } else {
+      onMountError?.(result.message);
+    }
   };
 
   const handlePasswordSubmit = async (
@@ -96,48 +99,45 @@ export const MountButton = ({
         }
       }
       
-      if (result.mount_point) {
-        onMountSuccess?.(result.mount_point);
-      }
+      onMountSuccess?.(result.mount_point || result.message);
     } else {
       onMountError?.(result.message);
     }
   };
 
-  const getButtonText = () => {
-    if (driveLoading) return '';
-    if (isMounted) return 'Unmount';
-    if (isEncrypted) return 'Unlock & Mount';
-    return 'Mount';
-  };
-
-  const getButtonIcon = () => {
-    if (driveLoading) return <LoadingSpinner size="sm" />;
-    if (isEncrypted && !isMounted) return <Lock className="w-4 h-4" />;
-    return <HardDrive className="w-4 h-4" />;
-  };
-
-  const getButtonVariant = () => {
-    if (isMounted) return 'outline' as const;
-    return 'default' as const;
-  };
-
-  const getButtonClassName = () => {
-    if (isMounted) return 'border-green-500 text-green-600 hover:bg-green-50';
-    return '';
-  };
-
   return (
     <>
-      <Button
-        onClick={handleMount}
-        disabled={driveLoading}
-        variant={getButtonVariant()}
-        className={`flex items-center gap-2 ${getButtonClassName()}`}
-      >
-        {getButtonIcon()}
-        {getButtonText()}
-      </Button>
+      <div className="flex gap-2">
+        {/* Mount Button */}
+        <Button
+          onClick={handleMount}
+          disabled={driveLoading || isMounted}
+          variant="default"
+          size="sm"
+          className={`flex items-center gap-2 ${isMounted ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}
+        >
+          {driveLoading ? (
+            <LoadingSpinner size="sm" />
+          ) : isEncrypted ? (
+            <Lock className="w-4 h-4" />
+          ) : (
+            <HardDrive className="w-4 h-4" />
+          )}
+          {isEncrypted ? 'Unlock & Mount' : 'Mount'}
+        </Button>
+
+        {/* Unmount Button */}
+        <Button
+          onClick={handleUnmount}
+          disabled={driveLoading || !isMounted}
+          variant="outline"
+          size="sm"
+          className={`flex items-center gap-2 ${!isMounted ? 'opacity-50 cursor-not-allowed' : 'border-red-500 text-red-600 hover:bg-red-50'}`}
+        >
+          <Unlock className="w-4 h-4" />
+          Unmount
+        </Button>
+      </div>
 
       <PasswordDialog
         open={showPasswordDialog}

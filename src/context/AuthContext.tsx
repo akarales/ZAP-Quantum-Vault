@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+
+// Check if we're running in Tauri context
+const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
+
+let invoke: any;
+if (isTauri) {
+  import('@tauri-apps/api/core').then(module => {
+    invoke = module.invoke;
+  });
+}
 
 interface User {
   id: string;
@@ -69,6 +78,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (username: string, password: string): Promise<void> => {
     try {
+      if (!isTauri) {
+        // Browser fallback - simulate successful login for testing
+        if (username === 'admin' && password === 'admin') {
+          const mockUser: User = {
+            id: 'browser-user-1',
+            username: 'admin',
+            email: 'admin@zapchat.org',
+            role: 'admin',
+            is_active: true,
+            mfa_enabled: false,
+            last_login: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          const mockToken = 'browser-mock-token-' + Date.now();
+          
+          setUser(mockUser);
+          setToken(mockToken);
+          
+          localStorage.setItem('zap_vault_user', JSON.stringify(mockUser));
+          localStorage.setItem('zap_vault_token', mockToken);
+          return;
+        } else {
+          throw new Error('Invalid credentials (use admin/admin for browser testing)');
+        }
+      }
+
       const response: AuthResponse = await invoke('login_user', {
         request: { username, password }
       });
@@ -86,6 +122,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const register = async (username: string, email: string, password: string): Promise<void> => {
     try {
+      if (!isTauri) {
+        // Browser fallback - simulate successful registration for testing
+        const mockUser: User = {
+          id: 'browser-user-' + Date.now(),
+          username,
+          email,
+          role: 'user',
+          is_active: true,
+          mfa_enabled: false,
+          last_login: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        const mockToken = 'browser-mock-token-' + Date.now();
+        
+        setUser(mockUser);
+        setToken(mockToken);
+        
+        localStorage.setItem('zap_vault_user', JSON.stringify(mockUser));
+        localStorage.setItem('zap_vault_token', mockToken);
+        return;
+      }
+
       const response: AuthResponse = await invoke('register_user', {
         request: { username, email, password }
       });
