@@ -442,7 +442,7 @@ pub async fn decrypt_vault_item_with_password(
     match (encryption_version, encrypted_data_v2, encryption_salt) {
         (Some(2), Some(encrypted_v2), Some(salt_b64)) => {
             // Decrypt with real AES-256-GCM encryption
-            let salt = base64::decode(&salt_b64)
+            let salt = general_purpose::STANDARD.decode(&salt_b64)
                 .map_err(|e| format!("Invalid salt format: {}", e))?;
             
             if salt.len() != 32 {
@@ -678,7 +678,7 @@ pub async fn export_all_vault_data_for_backup(
 
         // Get all Bitcoin keys for this vault from bitcoin_keys table
         let bitcoin_key_rows = sqlx::query(
-            "SELECT id, vault_id, key_type, network, encrypted_private_key, public_key, derivation_path, entropy_source, created_at, last_used 
+            "SELECT id, vault_id, key_type, network, encrypted_private_key, public_key, derivation_path, entropy_source, created_at, last_used, encryption_password 
              FROM bitcoin_keys WHERE vault_id = ? ORDER BY created_at DESC"
         )
         .bind(&vault_id)
@@ -722,9 +722,35 @@ pub async fn export_all_vault_data_for_backup(
         // Add Bitcoin keys as vault items
         let bitcoin_keys_count = bitcoin_key_rows.len();
         for bitcoin_key_row in bitcoin_key_rows {
+            let bitcoin_key_id: String = bitcoin_key_row.get("id");
+            
+            // Get receiving addresses for this Bitcoin key
+            let address_rows = sqlx::query(
+                "SELECT address, derivation_index, label, is_used, balance_satoshis 
+                 FROM receiving_addresses WHERE key_id = ? ORDER BY derivation_index ASC"
+            )
+            .bind(&bitcoin_key_id)
+            .fetch_all(db)
+            .await
+            .map_err(|e| {
+                error!("[VAULT_EXPORT] ❌ Failed to fetch addresses for Bitcoin key {}: {}", bitcoin_key_id, e);
+                e.to_string()
+            })?;
+            
             // Create encrypted data structure for Bitcoin key using the actual encrypted private key
             let encrypted_private_key: Vec<u8> = bitcoin_key_row.get("encrypted_private_key");
             let public_key: Vec<u8> = bitcoin_key_row.get("public_key");
+            
+            // Build addresses array
+            let addresses: Vec<serde_json::Value> = address_rows.iter().map(|addr_row| {
+                serde_json::json!({
+                    "address": addr_row.get::<String, _>("address"),
+                    "derivation_index": addr_row.get::<i64, _>("derivation_index"),
+                    "label": addr_row.get::<Option<String>, _>("label"),
+                    "is_used": addr_row.get::<bool, _>("is_used"),
+                    "balance_satoshis": addr_row.get::<i64, _>("balance_satoshis")
+                })
+            }).collect();
             
             // Convert binary data to base64 for JSON storage
             let encrypted_data = serde_json::json!({
@@ -733,7 +759,9 @@ pub async fn export_all_vault_data_for_backup(
                 "key_type": bitcoin_key_row.get::<String, _>("key_type"),
                 "network": bitcoin_key_row.get::<String, _>("network"),
                 "derivation_path": bitcoin_key_row.get::<Option<String>, _>("derivation_path"),
-                "entropy_source": bitcoin_key_row.get::<String, _>("entropy_source")
+                "entropy_source": bitcoin_key_row.get::<String, _>("entropy_source"),
+                "encryption_password": bitcoin_key_row.get::<Option<String>, _>("encryption_password"),
+                "receiving_addresses": addresses
             }).to_string();
 
             // Generate a title from key type and network

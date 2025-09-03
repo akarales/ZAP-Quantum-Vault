@@ -143,6 +143,11 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
         .execute(&pool)
         .await; // Ignore errors if column doesn't exist
     
+    // Migration: Add password field to bitcoin_keys for password manager functionality
+    let _ = sqlx::query("ALTER TABLE bitcoin_keys ADD COLUMN encryption_password TEXT")
+        .execute(&pool)
+        .await; // Ignore errors if column already exists
+    
     // HD wallets table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS hd_wallets (
@@ -192,6 +197,7 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
             derivation_index INTEGER NOT NULL,
             label TEXT,
             is_used BOOLEAN DEFAULT FALSE,
+            is_primary BOOLEAN DEFAULT FALSE,
             balance_satoshis INTEGER DEFAULT 0,
             transaction_count INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -201,6 +207,11 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
     )
     .execute(&pool)
     .await?;
+    
+    // Migration: Add is_primary column to receiving_addresses if it doesn't exist
+    let _ = sqlx::query("ALTER TABLE receiving_addresses ADD COLUMN is_primary BOOLEAN DEFAULT FALSE")
+        .execute(&pool)
+        .await; // Ignore errors if column already exists
     
     // Key backup logs for cold storage
     sqlx::query(

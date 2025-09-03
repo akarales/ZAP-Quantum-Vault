@@ -2,26 +2,8 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
-  Bitcoin, 
-  Key, 
-  Wallet, 
-  Plus, 
-  Copy, 
-  Download, 
-  Shield, 
-  Zap,
-  CheckCircle,
-  AlertTriangle,
-  Eye,
-  EyeOff,
-  QrCode,
-  RefreshCw,
-  Clock,
-  TrendingUp,
-  Activity,
-  Shuffle,
-  Trash2
+import {
+  Eye, EyeOff, Copy, Trash2, AlertTriangle, ChevronDown, Plus, Search, Filter, Download, Upload, Key, Shield, Clock, Tag, FileText, ExternalLink, MoreVertical, RefreshCw, Bitcoin, CheckCircle, Wallet, Shuffle, Zap, QrCode, Activity, TrendingUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +11,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface BitcoinKey {
   id: string;
@@ -44,6 +28,7 @@ interface BitcoinKey {
   createdAt: string;
   lastUsed?: string;
   isActive: boolean;
+  encryptionPassword?: string; // Stored encryption password
 }
 
 interface KeyGenerationForm {
@@ -67,9 +52,15 @@ interface BitcoinAddressInfo {
 export const BitcoinKeysPage = () => {
   const navigate = useNavigate();
   const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
+  const [trashedKeys, setTrashedKeys] = useState<BitcoinKey[]>([]);
+  const [showTrashedKeys, setShowTrashedKeys] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState<Record<string, boolean>>({});
   const [decryptedPrivateKeys, setDecryptedPrivateKeys] = useState<Record<string, string>>({});
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [passwordVisibility, setPasswordVisibility] = useState<Record<string, boolean>>({});
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [keyToDelete, setKeyToDelete] = useState<{ id: string; address: string } | null>(null);
+  const [deleteType, setDeleteType] = useState<'soft' | 'hard'>('soft');
 
   // Private key handlers
   const handleShowPrivateKey = async (keyId: string, password: string) => {
@@ -83,6 +74,46 @@ export const BitcoinKeysPage = () => {
     }
   };
 
+  // Delete handlers
+  const handleDeleteKey = (keyId: string, address: string, type: 'soft' | 'hard') => {
+    setKeyToDelete({ id: keyId, address });
+    setDeleteType(type);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteKeyConfirm = async () => {
+    if (!keyToDelete) return;
+    
+    try {
+      let result;
+      if (deleteType === 'soft') {
+        if (showTrashedKeys) {
+          // If viewing trashed keys, 'soft' action means restore
+          result = await invoke('restore_bitcoin_key', { keyId: keyToDelete.id });
+        } else {
+          // If viewing active keys, 'soft' action means move to trash
+          result = await invoke('delete_bitcoin_key', { keyId: keyToDelete.id });
+        }
+      } else {
+        result = await invoke('hard_delete_bitcoin_key', { keyId: keyToDelete.id });
+      }
+      
+      console.log('Delete/Restore result:', result);
+      
+      // Refresh both active and trashed keys lists
+      await loadBitcoinKeys();
+      await loadTrashedKeys();
+      
+      setDeleteDialogOpen(false);
+      setKeyToDelete(null);
+      
+      alert(`Key ${deleteType === 'soft' ? (showTrashedKeys ? 'restored' : 'moved to trash') : 'permanently deleted'} successfully!`);
+    } catch (error) {
+      console.error(`Failed to ${deleteType} delete key:`, error);
+      alert(`Failed to ${deleteType === 'soft' ? (showTrashedKeys ? 'restore' : 'delete') : 'permanently delete'} key.`);
+    }
+  };
+
   const handleHidePrivateKey = (keyId: string) => {
     setShowPrivateKey(prev => ({ ...prev, [keyId]: false }));
     setDecryptedPrivateKeys(prev => {
@@ -92,35 +123,33 @@ export const BitcoinKeysPage = () => {
     });
   };
 
-  const handleDeleteKey = async (keyId: string) => {
-    if (!confirm('Are you sure you want to delete this Bitcoin key? This action cannot be undone.')) {
-      return;
-    }
-
+  // Load Bitcoin keys function
+  const loadBitcoinKeys = async () => {
     try {
-      await invoke('delete_bitcoin_key', { keyId });
-      setBitcoinKeys(prev => prev.filter(key => key.id !== keyId));
-      setSelectedKeys(prev => prev.filter(id => id !== keyId));
-      
-      // Clear any decrypted private keys for this key
-      setDecryptedPrivateKeys(prev => {
-        const newKeys = { ...prev };
-        delete newKeys[keyId];
-        return newKeys;
-      });
-      setShowPrivateKey(prev => ({ ...prev, [keyId]: false }));
-      
-      alert('Bitcoin key deleted successfully');
+      const keys = await invoke('list_bitcoin_keys', { vaultId: 'default_vault' }) as BitcoinKey[];
+      setBitcoinKeys(keys);
     } catch (error) {
-      console.error('Failed to delete Bitcoin key:', error);
-      alert('Failed to delete Bitcoin key. Please try again.');
+      console.error('Failed to load Bitcoin keys:', error);
     }
   };
+
+  // Load trashed Bitcoin keys function
+  const loadTrashedKeys = async () => {
+    try {
+      const keys = await invoke('list_trashed_bitcoin_keys', { vaultId: 'default_vault' }) as BitcoinKey[];
+      setTrashedKeys(keys);
+    } catch (error) {
+      console.error('Failed to load trashed Bitcoin keys:', error);
+    }
+  };
+
 
   const copyPrivateKey = (privateKey: string) => {
     navigator.clipboard.writeText(privateKey);
     alert('Private key copied to clipboard!');
   };
+
+  // Additional state variables
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -142,29 +171,10 @@ export const BitcoinKeysPage = () => {
 
   useEffect(() => {
     loadBitcoinKeys();
+    loadTrashedKeys();
   }, []);
 
-  const loadBitcoinKeys = async () => {
-    try {
-      const keys = await invoke('list_bitcoin_keys', {
-        vaultId: currentVaultId
-      }) as BitcoinKey[];
-      console.log('Raw keys data from backend:', keys);
-      console.log('First key structure:', keys[0]);
-      if (keys[0]) {
-        console.log('First key publicKey:', keys[0].publicKey);
-        console.log('All keys from backend:', JSON.stringify(keys, null, 2));
-        console.log('Keys object keys:', Object.keys(keys[0]));
-      }
-      setBitcoinKeys(keys);
-      console.log('Loaded Bitcoin keys:', keys);
-      
-    } catch (err) {
-      console.error('Failed to load Bitcoin keys:', err);
-      setError(`Failed to load keys: ${err}`);
-    }
-  };
-
+  // Key generation handler
   const handleGenerateKey = async () => {
     if (!keyForm.password) {
       setError('Password is required');
@@ -177,76 +187,73 @@ export const BitcoinKeysPage = () => {
     setGeneratedAddress(null);
 
     try {
-      const response = await invoke('generate_bitcoin_key', {
+      const result = await invoke('generate_bitcoin_key', {
         vaultId: currentVaultId,
         keyType: keyForm.keyType,
         network: keyForm.network,
-        password: keyForm.password
-      }) as string;
+        password: keyForm.password,
+        description: keyForm.description
+      }) as {
+        address: string,
+        publicKey: string,
+        keyType: string,
+        network: string
+      };
 
-      // Parse the JSON response
-      let keyData;
-      try {
-        keyData = JSON.parse(response);
-      } catch {
-        // If parsing fails, treat as just the key ID (fallback)
-        keyData = { id: response, address: 'Address generation failed' };
-      }
-
-      // Set the generated address info
       setGeneratedAddress({
-        address: keyData.address || 'Address not available',
-        keyType: keyData.keyType || keyForm.keyType,
-        network: keyData.network || keyForm.network,
-        publicKey: keyData.publicKey || '',
-        qrCode: '' // QR code generation can be added later
+        address: result.address,
+        publicKey: result.publicKey,
+        keyType: keyForm.keyType,
+        network: keyForm.network
       });
 
       setSuccess('Bitcoin key generated successfully!');
-      console.log('Generated Bitcoin key:', keyData);
-      
-      // Load updated keys
-      setKeyForm(prev => ({ ...prev, password: '' }));
+
+      // Reset form
+      setKeyForm(prev => ({
+        ...prev,
+        password: '',
+        description: ''
+      }));
       await loadBitcoinKeys();
-    } catch (err) {
-      setError(`Failed to generate key: ${err}`);
+    } catch (error) {
+      setError(`Failed to generate key: ${error}`);
     } finally {
       setLoading(false);
     }
   };
 
+  // Utility functions
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    setSuccess('Copied to clipboard!');
-    setTimeout(() => setSuccess(''), 2000);
+    alert('Copied to clipboard!');
   };
 
   const generateSecurePassword = () => {
-    const length = 32;
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?';
     let password = '';
     
-    // Ensure at least one character from each category
-    const categories = [
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-      'abcdefghijklmnopqrstuvwxyz', 
-      '0123456789',
-      '!@#$%^&*()_+-=[]{}|;:,.<>?'
-    ];
+    // Ensure at least one character from each required category
+    const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+    const numbers = '0123456789';
+    const symbols = '!@#$%^&*()_+-=[]{}|;:,.<>?';
     
-    // Add one character from each category
-    categories.forEach(category => {
-      password += category.charAt(Math.floor(Math.random() * category.length));
-    });
+    password += uppercase[Math.floor(Math.random() * uppercase.length)];
+    password += lowercase[Math.floor(Math.random() * lowercase.length)];
+    password += numbers[Math.floor(Math.random() * numbers.length)];
+    password += symbols[Math.floor(Math.random() * symbols.length)];
     
-    // Fill remaining length with random characters
-    for (let i = password.length; i < length; i++) {
-      password += charset.charAt(Math.floor(Math.random() * charset.length));
+    // Fill the rest randomly
+    for (let i = 4; i < 16; i++) {
+      password += charset[Math.floor(Math.random() * charset.length)];
     }
     
+    // Shuffle the password
+    password = password.split('').sort(() => Math.random() - 0.5).join('');
+    
     setKeyForm(prev => ({ ...prev, password }));
-    setSuccess('Secure password generated!');
-    setTimeout(() => setSuccess(''), 2000);
+    alert('Secure password generated!');
   };
 
   const getKeyTypeInfo = (keyType: string) => {
@@ -688,33 +695,63 @@ export const BitcoinKeysPage = () => {
             {/* Key Inventory */}
             <Card className="shadow-lg">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Wallet className="h-5 w-5" />
-                  Bitcoin Key Inventory
-                </CardTitle>
-                <CardDescription>
-                  Manage your quantum-enhanced Bitcoin keys and addresses
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Wallet className="h-5 w-5" />
+                      Bitcoin Key Inventory
+                    </CardTitle>
+                    <CardDescription>
+                      Manage your quantum-enhanced Bitcoin keys and addresses
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={showTrashedKeys ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => setShowTrashedKeys(false)}
+                    >
+                      Active Keys ({bitcoinKeys.length})
+                    </Button>
+                    <Button
+                      variant={showTrashedKeys ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowTrashedKeys(true)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Trash ({trashedKeys.length})
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                {bitcoinKeys.length === 0 ? (
+                {(showTrashedKeys ? trashedKeys : bitcoinKeys).length === 0 ? (
                   <div className="text-center py-12">
                     <Bitcoin className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-xl font-semibold mb-2">No Bitcoin Keys Found</h3>
+                    <h3 className="text-xl font-semibold mb-2">
+                      {showTrashedKeys ? "No Trashed Keys" : "No Bitcoin Keys Found"}
+                    </h3>
                     <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                      Generate your first offline Bitcoin key for secure air-gapped cold storage.
+                      {showTrashedKeys 
+                        ? "No keys have been moved to trash yet."
+                        : "Generate your first offline Bitcoin key for secure air-gapped cold storage."
+                      }
                     </p>
-                    <div className="text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-50/50 dark:bg-yellow-950/20 p-3 rounded-lg mb-4 border border-yellow-200 dark:border-yellow-800">
-                      ⚠️ Database storage not implemented - keys are generated but not persisted
-                    </div>
-                    <Button onClick={handleGenerateKey} disabled={!keyForm.password}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Generate Your First Key
-                    </Button>
+                    {!showTrashedKeys && (
+                      <>
+                        <div className="text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-50/50 dark:bg-yellow-950/20 p-3 rounded-lg mb-4 border border-yellow-200 dark:border-yellow-800">
+                          ⚠️ Database storage not implemented - keys are generated but not persisted
+                        </div>
+                        <Button onClick={handleGenerateKey} disabled={!keyForm.password}>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Generate Your First Key
+                        </Button>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {bitcoinKeys.map((key) => (
+                    {(showTrashedKeys ? trashedKeys : bitcoinKeys).map((key) => (
                       <Card key={key.id} className="border-l-4 border-l-orange-500 bg-card/80 dark:bg-card/60 backdrop-blur-sm">
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
@@ -784,15 +821,56 @@ export const BitcoinKeysPage = () => {
                                             <Copy className="h-3 w-3 mr-1" />
                                             Copy
                                           </Button>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => handleHidePrivateKey(key.id)}
-                                            className="text-xs h-7"
-                                          >
-                                            <EyeOff className="h-3 w-3 mr-1" />
-                                            Hide
-                                          </Button>
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="text-xs h-7 text-red-600 hover:text-red-700"
+                                              >
+                                                <Trash2 className="h-3 w-3 mr-1" />
+                                                Delete
+                                                <ChevronDown className="h-3 w-3 ml-1" />
+                                              </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                              {showTrashedKeys ? (
+                                                <>
+                                                  <DropdownMenuItem
+                                                    onClick={() => handleDeleteKey(key.id, key.address, 'soft')}
+                                                    className="text-green-600"
+                                                  >
+                                                    <RefreshCw className="h-4 w-4 mr-2" />
+                                                    Restore Key
+                                                  </DropdownMenuItem>
+                                                  <DropdownMenuItem
+                                                    onClick={() => handleDeleteKey(key.id, key.address, 'hard')}
+                                                    className="text-red-600"
+                                                  >
+                                                    <AlertTriangle className="h-4 w-4 mr-2" />
+                                                    Permanently Delete
+                                                  </DropdownMenuItem>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <DropdownMenuItem
+                                                    onClick={() => handleDeleteKey(key.id, key.address, 'soft')}
+                                                    className="text-orange-600"
+                                                  >
+                                                    <Trash2 className="h-4 w-4 mr-2" />
+                                                    Move to Trash
+                                                  </DropdownMenuItem>
+                                                  <DropdownMenuItem
+                                                    onClick={() => handleDeleteKey(key.id, key.address, 'hard')}
+                                                    className="text-red-600"
+                                                  >
+                                                    <AlertTriangle className="h-4 w-4 mr-2" />
+                                                    Permanently Delete
+                                                  </DropdownMenuItem>
+                                                </>
+                                              )}
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
                                         </>
                                       )}
                                     </div>
@@ -822,15 +900,38 @@ export const BitcoinKeysPage = () => {
                                     <Copy className="h-4 w-4 mr-1" />
                                     Copy Address
                                   </Button>
-                                  <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => handleDeleteKey(key.id)}
-                                    className="text-xs h-7"
-                                  >
-                                    <Trash2 className="h-3 w-3 mr-1" />
-                                    Delete
-                                  </Button>
+                                  {showTrashedKeys ? (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleDeleteKey(key.id, key.address, 'soft')}
+                                      className="text-xs h-7 text-green-600 hover:text-green-700"
+                                    >
+                                      <RefreshCw className="h-3 w-3 mr-1" />
+                                      Restore
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => handleDeleteKey(key.id, key.address, 'soft')}
+                                      className="text-xs h-7"
+                                    >
+                                      <Trash2 className="h-3 w-3 mr-1" />
+                                      Move to Trash
+                                    </Button>
+                                  )}
+                                  {showTrashedKeys && (
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => handleDeleteKey(key.id, key.address, 'hard')}
+                                      className="text-xs h-7"
+                                    >
+                                      <AlertTriangle className="h-3 w-3 mr-1" />
+                                      Delete Forever
+                                    </Button>
+                                  )}
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-4">
@@ -872,6 +973,49 @@ export const BitcoinKeysPage = () => {
                                       {key.id.slice(0, 16)}...
                                     </code>
                                   </div>
+                                  
+                                  {key.encryptionPassword && (
+                                    <div>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <Label className="text-sm font-medium">Encryption Password</Label>
+                                        <div className="flex gap-1">
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                              const keyId = key.id;
+                                              setPasswordVisibility(prev => ({
+                                                ...prev,
+                                                [keyId]: !prev[keyId]
+                                              }));
+                                            }}
+                                            className="text-xs h-7"
+                                          >
+                                            {passwordVisibility[key.id] ? (
+                                              <EyeOff className="h-3 w-3" />
+                                            ) : (
+                                              <Eye className="h-3 w-3" />
+                                            )}
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => copyToClipboard(key.encryptionPassword!)}
+                                            className="text-xs h-7"
+                                          >
+                                            <Copy className="h-3 w-3 mr-1" />
+                                            Copy
+                                          </Button>
+                                        </div>
+                                      </div>
+                                      <code className="block bg-accent/30 p-2 rounded text-xs font-mono break-all border border-border">
+                                        {passwordVisibility[key.id] ? key.encryptionPassword : '•'.repeat(key.encryptionPassword.length)}
+                                      </code>
+                                      <div className="text-xs text-muted-foreground mt-1">
+                                        🔐 Stored password for key decryption
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
 
                                 {key.derivationPath && (
@@ -913,6 +1057,63 @@ export const BitcoinKeysPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Hard Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              {deleteType === 'hard' ? 'Permanently Delete Bitcoin Key' : 'Move Bitcoin Key to Trash'}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteType === 'hard' ? (
+                <>
+                  <div className="space-y-2">
+                    <p className="text-red-600 font-medium">
+                      ⚠️ This action cannot be undone!
+                    </p>
+                    <p>
+                      You are about to permanently delete the Bitcoin key for address:
+                    </p>
+                    <code className="block bg-red-50 dark:bg-red-950/20 p-2 rounded text-sm font-mono border border-red-200 dark:border-red-800">
+                      {keyToDelete?.address}
+                    </code>
+                    <p className="text-sm text-muted-foreground">
+                      This will permanently remove the key and all associated data from the database. 
+                      Make sure you have backed up this key if you need to recover it later.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>
+                    Move the Bitcoin key for address <code className="bg-muted px-1 rounded">{keyToDelete?.address}</code> to trash?
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    The key will be marked as inactive but can be recovered later.
+                  </p>
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={deleteType === 'hard' ? 'destructive' : 'default'}
+              onClick={handleDeleteKeyConfirm}
+              className={deleteType === 'hard' ? 'bg-red-600 hover:bg-red-700' : ''}
+            >
+              {deleteType === 'hard' ? 'Permanently Delete' : 'Move to Trash'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

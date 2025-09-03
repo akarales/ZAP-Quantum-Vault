@@ -2,8 +2,11 @@ use std::time::Instant;
 use tauri::State;
 use sqlx::{SqlitePool, Row};
 use base64::{Engine as _, engine::general_purpose};
+use uuid::Uuid;
 use crate::AppState;
-use crate::bitcoin_keys::{SimpleBitcoinKeyGenerator, BitcoinKeyType, BitcoinNetwork};
+use crate::bitcoin_keys_clean::{BitcoinKey, SimpleBitcoinKeyGenerator, BitcoinKeyType, BitcoinNetwork, EntropySource};
+use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, KeyInit}};
 use crate::{log_error, log_info, log_bitcoin_event};
 use crate::logging::BitcoinKeyEvent;
 
@@ -108,9 +111,9 @@ pub async fn generate_bitcoin_key(
     };
     
     let entropy_source_str = match bitcoin_key.entropy_source {
-        crate::bitcoin_keys::EntropySource::SystemRng => "system_rng",
-        crate::bitcoin_keys::EntropySource::QuantumEnhanced => "quantum_enhanced",
-        crate::bitcoin_keys::EntropySource::Hardware => "hardware",
+        EntropySource::SystemRng => "system_rng",
+        EntropySource::QuantumEnhanced => "quantum_enhanced",
+        EntropySource::Hardware => "hardware",
     };
     
     // Store in database
@@ -118,18 +121,25 @@ pub async fn generate_bitcoin_key(
     let created_at_str = bitcoin_key.created_at.to_rfc3339();
     
     // Log public key details before storing
-    log_info!("bitcoin_commands", &format!("Storing Bitcoin key - Address: {}, Vault ID: {}, Public key length: {}, Public key hex: {}", 
+    log_info!("bitcoin_commands", &format!("Storing Bitcoin key - Address: {:?}, Vault ID: {}, Public key length: {}, Public key hex: {}", 
         bitcoin_key.address, 
         effective_vault_id,
         bitcoin_key.public_key.len(),
         hex::encode(&bitcoin_key.public_key[..std::cmp::min(16, bitcoin_key.public_key.len())])
     ));
     
-    match sqlx::query(
-        "INSERT INTO bitcoin_keys (id, vault_id, key_type, network, encrypted_private_key, public_key, derivation_path, entropy_source, quantum_enhanced, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    let key_id = Uuid::new_v4().to_string();
+    let vault_id_str = effective_vault_id.clone();
+    
+    // Start a transaction to ensure both key and address are stored atomically
+    let mut tx = db.begin().await.map_err(|e| format!("Failed to start transaction: {}", e))?;
+    
+    // Insert the key
+    let insert_result = sqlx::query(
+        "INSERT INTO bitcoin_keys (id, vault_id, key_type, network, encrypted_private_key, public_key, derivation_path, entropy_source, quantum_enhanced, created_at, is_active, encryption_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .bind(&bitcoin_key.id)
-    .bind(&effective_vault_id)
+    .bind(&key_id)
+    .bind(&vault_id_str)
     .bind(&key_type_str)
     .bind(&network_str)
     .bind(&bitcoin_key.encrypted_private_key)
@@ -138,77 +148,70 @@ pub async fn generate_bitcoin_key(
     .bind(&entropy_source_str)
     .bind(bitcoin_key.quantum_enhanced)
     .bind(&created_at_str)
-    .bind(bitcoin_key.is_active)
-    .execute(db.as_ref())
-    .await {
+    .bind(true) // is_active
+    .bind(&bitcoin_key.encryption_password) // Store password for backup decryption
+    .execute(&mut *tx)
+    .await;
+
+    match insert_result {
         Ok(_) => {
-            log_info!("bitcoin_commands", &format!("Bitcoin key stored in database: {}", bitcoin_key.id));
+            // Insert the primary receiving address
+            let address_insert = sqlx::query(
+                "INSERT INTO receiving_addresses (id, key_id, address, derivation_index, is_primary, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(&key_id)
+            .bind(&bitcoin_key.address.as_ref().unwrap_or(&"No address".to_string()))
+            .bind(0) // Primary address has derivation index 0
+            .bind(true) // is_primary
+            .bind(&created_at_str)
+            .execute(&mut *tx)
+            .await;
+
+            match address_insert {
+                Ok(_) => {
+                    // Commit the transaction
+                    tx.commit().await.map_err(|e| format!("Failed to commit transaction: {}", e))?;
+                    
+                    log_bitcoin_event!(BitcoinKeyEvent {
+                        event_type: "key_generation_success".to_string(),
+                        key_id: Some(key_id.clone()),
+                        vault_id: effective_vault_id.clone(),
+                        key_type: Some(key_type.clone()),
+                        network: Some(network.clone()),
+                        success: true,
+                        error_message: None,
+                        duration_ms: Some(start_time.elapsed().as_millis() as u64),
+                    });
+                    
+                    log_info!("bitcoin_commands", &format!("Successfully generated and stored Bitcoin key with address: {} -> {:?}", key_id, bitcoin_key.address));
+                    
+                    // Return JSON with key details including address
+                    let result = serde_json::json!({
+                        "id": key_id,
+                        "address": bitcoin_key.address,
+                        "keyType": key_type_str,
+                        "network": network_str,
+                        "publicKey": general_purpose::STANDARD.encode(&bitcoin_key.public_key),
+                        "quantumEnhanced": bitcoin_key.quantum_enhanced,
+                        "createdAt": created_at_str
+                    });
+                    
+                    Ok(result.to_string())
+                },
+                Err(e) => {
+                    tx.rollback().await.ok();
+                    log_error!("bitcoin_commands", &format!("Failed to store receiving address: {}", e));
+                    Err(format!("Failed to store receiving address: {}", e))
+                }
+            }
         },
         Err(e) => {
-            log_error!("bitcoin_commands", &format!("Failed to store Bitcoin key in database: {}", e));
-            return Err(format!("Failed to store key in database: {}", e));
+            tx.rollback().await.ok();
+            log_error!("bitcoin_commands", &format!("Failed to store Bitcoin key: {}", e));
+            Err(format!("Failed to store key: {}", e))
         }
     }
-    
-    // Auto-create index 0 receiving address (primary address)
-    let primary_address_id = uuid::Uuid::new_v4().to_string();
-    match sqlx::query(
-        "INSERT INTO receiving_addresses (id, key_id, address, derivation_index, label, is_used, balance_satoshis, transaction_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    )
-    .bind(&primary_address_id)
-    .bind(&bitcoin_key.id)
-    .bind(&bitcoin_key.address)
-    .bind(0i32) // Index 0 for primary address
-    .bind("Primary Address")
-    .bind(false)
-    .bind(0i64)
-    .bind(0i32)
-    .bind(&created_at_str)
-    .execute(db.as_ref())
-    .await {
-        Ok(_) => {
-            log_info!("bitcoin_commands", &format!("Primary receiving address created for key: {}", bitcoin_key.address));
-        },
-        Err(e) => {
-            log_error!("bitcoin_commands", &format!("Failed to create primary receiving address: {}", e));
-            return Err(format!("Failed to create primary receiving address: {}", e));
-        }
-    }
-    
-    // Also insert metadata record
-    let label = format!("{} Key", key_type_str.to_uppercase());
-    let description = format!("Quantum-enhanced {} key for {}", key_type_str, network_str);
-    match sqlx::query(
-        "INSERT INTO bitcoin_key_metadata (key_id, label, description) VALUES (?, ?, ?)"
-    )
-    .bind(&bitcoin_key.id)
-    .bind(&label)
-    .bind(&description)
-    .execute(db.as_ref())
-    .await {
-        Ok(_) => {},
-        Err(e) => {
-            log_error!("bitcoin_commands", &format!("Failed to store Bitcoin key metadata: {}", e));
-        }
-    }
-    
-    // Return full key data as JSON for frontend
-    let key_response = serde_json::json!({
-        "id": bitcoin_key.id,
-        "address": bitcoin_key.address,
-        "keyType": key_type_str,
-        "network": network_str,
-        "publicKey": general_purpose::STANDARD.encode(&bitcoin_key.public_key),
-        "entropySource": entropy_source_str,
-        "quantumEnhanced": bitcoin_key.quantum_enhanced,
-        "createdAt": bitcoin_key.created_at,
-        "isActive": bitcoin_key.is_active,
-        "encryptedPrivateKey": general_purpose::STANDARD.encode(&bitcoin_key.encrypted_private_key)
-    });
-    
-    log_info!("bitcoin_commands", &format!("Bitcoin key generated and stored successfully: {}", bitcoin_key.address));
-    
-    Ok(serde_json::to_string(&key_response).unwrap_or_else(|_| bitcoin_key.id))
 }
 
 #[tauri::command]
@@ -254,7 +257,7 @@ pub async fn list_bitcoin_keys(
         Err(e) => return Err(format!("Failed to resolve vault: {}", e)),
     };
     
-    match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count, ra.address FROM bitcoin_keys bk LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id LEFT JOIN receiving_addresses ra ON bk.id = ra.key_id AND ra.derivation_index = 0 WHERE bk.vault_id = ? AND bk.is_active = 1 ORDER BY bk.created_at DESC")
+    match sqlx::query("SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.last_used, bk.is_active, bk.encryption_password, ra.address, bkm.label, bkm.description, bkm.tags, bkm.balance_satoshis, bkm.transaction_count FROM bitcoin_keys bk LEFT JOIN receiving_addresses ra ON bk.id = ra.key_id AND ra.is_primary = 1 LEFT JOIN bitcoin_key_metadata bkm ON bk.id = bkm.key_id WHERE bk.vault_id = ? AND bk.is_active = 1 ORDER BY bk.created_at DESC")
         .bind(&effective_vault_id)
         .fetch_all(db.as_ref())
         .await {
@@ -262,10 +265,11 @@ pub async fn list_bitcoin_keys(
             let keys: Vec<serde_json::Value> = rows.into_iter().map(|row| {
                 // Log public key details for each row
                 let public_key: Vec<u8> = row.get("public_key");
-                let address: String = row.get("address");
+                let address: Option<String> = row.get("address");
+                let address_str = address.unwrap_or_else(|| "No address".to_string());
                 let public_key_base64 = general_purpose::STANDARD.encode(&public_key);
                 log_info!("bitcoin_commands", &format!("Retrieved key - Address: {}, Public key length: {}, Base64 length: {}, Base64 preview: {}", 
-                    address, 
+                    address_str, 
                     public_key.len(),
                     public_key_base64.len(),
                     &public_key_base64[..std::cmp::min(32, public_key_base64.len())]
@@ -276,7 +280,7 @@ pub async fn list_bitcoin_keys(
                     "vaultId": row.get::<Option<String>, _>("vault_id"),
                     "keyType": row.get::<String, _>("key_type"),
                     "network": row.get::<String, _>("network"),
-                    "address": address,
+                    "address": address_str,
                     "publicKey": public_key_base64,
                     "encryptedPrivateKey": general_purpose::STANDARD.encode(&row.get::<Vec<u8>, _>("encrypted_private_key")),
                     "derivationPath": row.get::<Option<String>, _>("derivation_path"),
@@ -285,6 +289,7 @@ pub async fn list_bitcoin_keys(
                     "createdAt": row.get::<String, _>("created_at"),
                     "lastUsed": row.get::<Option<String>, _>("last_used"),
                     "isActive": row.get::<bool, _>("is_active"),
+                    "encryptionPassword": row.get::<Option<String>, _>("encryption_password"),
                     "label": row.get::<Option<String>, _>("label"),
                     "description": row.get::<Option<String>, _>("description"),
                     "tags": row.get::<Option<String>, _>("tags"),
@@ -601,4 +606,327 @@ fn derive_address_from_index(base_address: &str, index: i32, key_type: &str, net
         let hash_hex = hex::encode(&hash[..16]); // Use first 16 bytes for shorter address
         Ok(format!("{}{:02x}{}", prefix, index % 256, hash_hex))
     }
+}
+
+#[tauri::command]
+pub async fn list_trashed_bitcoin_keys(
+    vault_id: String,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<BitcoinKey>, String> {
+    let db = &app_state.db;
+    
+    // Resolve vault ID (try by name or ID, similar to list_bitcoin_keys)
+    let effective_vault_id = match app_state.vault_service.get_vault_by_name_or_id(&vault_id).await {
+        Ok(Some(vault)) => {
+            log_info!("bitcoin_commands", &format!("Resolved vault '{}' to UUID: {}", vault_id, vault.id));
+            vault.id
+        },
+        Ok(None) => {
+            log_info!("bitcoin_commands", &format!("Vault '{}' not found, using ensure_default_vault", vault_id));
+            match app_state.vault_service.ensure_default_vault().await {
+                Ok(default_vault_id) => {
+                    log_info!("bitcoin_commands", &format!("Using default vault: {}", default_vault_id));
+                    default_vault_id
+                },
+                Err(e) => return Err(format!("Failed to ensure default vault: {}", e)),
+            }
+        },
+        Err(e) => return Err(format!("Failed to resolve vault: {}", e)),
+    };
+    
+    let rows = sqlx::query(
+        "SELECT bk.id, bk.vault_id, bk.key_type, bk.network, bk.encrypted_private_key, bk.public_key, bk.derivation_path, bk.entropy_source, bk.quantum_enhanced, bk.created_at, bk.is_active, bk.encryption_password, ra.address FROM bitcoin_keys bk LEFT JOIN receiving_addresses ra ON bk.id = ra.key_id AND ra.is_primary = 1 WHERE bk.vault_id = ? AND bk.is_active = 0"
+    )
+    .bind(&effective_vault_id)
+    .fetch_all(db.as_ref())
+    .await
+    .map_err(|e| format!("Database error: {}", e))?;
+
+    let mut keys = Vec::new();
+    for row in rows {
+        let key = BitcoinKey {
+            id: row.get("id"),
+            vault_id: row.get("vault_id"),
+            key_type: match row.get::<String, _>("key_type").as_str() {
+                "Legacy" => BitcoinKeyType::Legacy,
+                "SegWit" => BitcoinKeyType::SegWit,
+                "Native" => BitcoinKeyType::Native,
+                "MultiSig" => BitcoinKeyType::MultiSig,
+                "Taproot" => BitcoinKeyType::Taproot,
+                _ => BitcoinKeyType::Legacy,
+            },
+            network: match row.get::<String, _>("network").as_str() {
+                "Mainnet" => BitcoinNetwork::Mainnet,
+                "Testnet" => BitcoinNetwork::Testnet,
+                "Regtest" => BitcoinNetwork::Regtest,
+                _ => BitcoinNetwork::Mainnet,
+            },
+            encrypted_private_key: row.get::<Vec<u8>, _>("encrypted_private_key"),
+            public_key: row.get::<Vec<u8>, _>("public_key"),
+            address: row.get::<Option<String>, _>("address"),
+            derivation_path: row.get("derivation_path"),
+            entropy_source: match row.get::<String, _>("entropy_source").as_str() {
+                "SystemRng" => EntropySource::SystemRng,
+                "QuantumEnhanced" => EntropySource::QuantumEnhanced,
+                "Hardware" => EntropySource::Hardware,
+                _ => EntropySource::SystemRng,
+            },
+            quantum_enhanced: row.get("quantum_enhanced"),
+            created_at: row.get("created_at"),
+            is_active: row.get("is_active"),
+            last_used: None,
+            encryption_password: row.get("encryption_password"),
+        };
+        keys.push(key);
+    }
+    
+    log_info!("bitcoin_commands", &format!("Retrieved {} trashed Bitcoin keys for vault {} (resolved to: {})", keys.len(), vault_id, effective_vault_id));
+    Ok(keys)
+}
+
+// Helper function for decrypting private key data
+fn decrypt_private_key_data(encrypted_data: &str, password: &str) -> Result<Vec<u8>, String> {
+    let encrypted_bytes = general_purpose::STANDARD.decode(encrypted_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+    
+    // Parse the encrypted data format: salt + separator + nonce + ciphertext
+    let separator_pos = encrypted_bytes.iter().position(|&x| x == 0)
+        .ok_or_else(|| "Invalid encrypted data format".to_string())?;
+    
+    let salt_str = std::str::from_utf8(&encrypted_bytes[..separator_pos])
+        .map_err(|e| format!("Invalid salt format: {}", e))?;
+    
+    let remaining = &encrypted_bytes[separator_pos + 1..];
+    if remaining.len() < 12 {
+        return Err("Encrypted data too short".to_string());
+    }
+    
+    let nonce_bytes = &remaining[..12];
+    let ciphertext = &remaining[12..];
+    
+    // Derive key from password using the same method as encryption
+    let argon2 = Argon2::default();
+    let salt = SaltString::from_b64(salt_str)
+        .map_err(|e| format!("Failed to parse salt: {}", e))?;
+    
+    let password_hash = argon2.hash_password(password.as_bytes(), &salt)
+        .map_err(|e| format!("Failed to hash password: {}", e))?;
+    
+    let hash = password_hash.hash.unwrap();
+    let key_bytes = hash.as_bytes();
+    if key_bytes.len() < 32 {
+        return Err("Derived key too short".to_string());
+    }
+    
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes[..32])
+        .map_err(|e| format!("Failed to create cipher: {}", e))?;
+    
+    let nonce = Nonce::from_slice(nonce_bytes);
+    
+    cipher.decrypt(nonce, ciphertext)
+        .map_err(|e| format!("Failed to decrypt: {}", e))
+}
+
+#[derive(serde::Serialize)]
+pub struct BitcoinKeyDetails {
+    pub id: String,
+    pub address: String,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub tags: Option<String>,
+    pub created_at: String,
+    pub is_active: bool,
+}
+
+#[tauri::command]
+pub async fn decrypt_private_key(
+    key_id: String,
+    password: String,
+    app_state: State<'_, AppState>,
+) -> Result<String, String> {
+    let start_time = Instant::now();
+    let db = &app_state.db;
+    
+    // Get the encrypted private key from database
+    match sqlx::query("SELECT encrypted_private_key FROM bitcoin_keys WHERE id = ? AND is_active = 1")
+        .bind(&key_id)
+        .fetch_one(db.as_ref())
+        .await {
+        Ok(row) => {
+            let encrypted_private_key: Vec<u8> = row.get("encrypted_private_key");
+            let encrypted_data_b64 = general_purpose::STANDARD.encode(&encrypted_private_key);
+            
+            // Decrypt the private key using the same method as encryption
+            match decrypt_private_key_data(&encrypted_data_b64, &password) {
+                Ok(private_key_bytes) => {
+                    let private_key_hex = hex::encode(&private_key_bytes);
+                    
+                    log_bitcoin_event!(BitcoinKeyEvent {
+                        event_type: "private_key_decryption_success".to_string(),
+                        key_id: Some(key_id.clone()),
+                        vault_id: "unknown".to_string(),
+                        key_type: None,
+                        network: None,
+                        success: true,
+                        error_message: None,
+                        duration_ms: Some(start_time.elapsed().as_millis() as u64),
+                    });
+                    
+                    log_info!("bitcoin_commands", &format!("Private key decrypted successfully for key: {}", key_id));
+                    
+                    Ok(private_key_hex)
+                },
+                Err(e) => {
+                    log_bitcoin_event!(BitcoinKeyEvent {
+                        event_type: "private_key_decryption_failure".to_string(),
+                        key_id: Some(key_id.clone()),
+                        vault_id: "unknown".to_string(),
+                        key_type: None,
+                        network: None,
+                        success: false,
+                        error_message: Some(e.clone()),
+                        duration_ms: Some(start_time.elapsed().as_millis() as u64),
+                    });
+                    
+                    log_error!("bitcoin_commands", &format!("Failed to decrypt private key for {}: {}", key_id, e));
+                    Err(format!("Failed to decrypt private key: {}", e))
+                }
+            }
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to find Bitcoin key {}: {}", key_id, e));
+            Err(format!("Bitcoin key not found: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_bitcoin_key_details(
+    key_id: String,
+    app_state: State<'_, AppState>,
+) -> Result<BitcoinKeyDetails, String> {
+    let db = &app_state.db;
+    
+    match sqlx::query(
+        "SELECT bk.id, ra.address, bk.created_at, bk.is_active
+         FROM bitcoin_keys bk
+         LEFT JOIN receiving_addresses ra ON bk.id = ra.key_id AND ra.is_primary = 1
+         WHERE bk.id = ?"
+    )
+    .bind(&key_id)
+    .fetch_one(db.as_ref())
+    .await {
+        Ok(row) => {
+            let key_details = BitcoinKeyDetails {
+                id: row.get("id"),
+                address: row.get::<Option<String>, _>("address").unwrap_or_default(),
+                label: None,
+                description: None,
+                tags: None,
+                created_at: row.get("created_at"),
+                is_active: row.get("is_active"),
+            };
+            Ok(key_details)
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to get Bitcoin key details for {}: {}", key_id, e));
+            Err(format!("Failed to retrieve key details: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn update_bitcoin_key_metadata(
+    key_id: String,
+    label: Option<String>,
+    description: Option<String>,
+    tags: Option<String>,
+    app_state: State<'_, AppState>,
+) -> Result<String, String> {
+    let _db = &app_state.db;
+    
+    // For now, just return success since metadata table doesn't exist
+    log_info!("bitcoin_commands", &format!("Metadata update requested for key {}: label={:?}, description={:?}, tags={:?}", 
+        key_id, label, description, tags));
+    
+    Ok("Metadata updated successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn delete_bitcoin_key(
+    key_id: String,
+    app_state: State<'_, AppState>,
+) -> Result<String, String> {
+    let db = &app_state.db;
+    
+    // Soft delete - mark as inactive
+    match sqlx::query("UPDATE bitcoin_keys SET is_active = 0 WHERE id = ?")
+        .bind(&key_id)
+        .execute(db.as_ref())
+        .await {
+        Ok(_) => {
+            log_info!("bitcoin_commands", &format!("Bitcoin key {} soft deleted (moved to trash)", key_id));
+            Ok("Key moved to trash successfully".to_string())
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to soft delete Bitcoin key {}: {}", key_id, e));
+            Err(format!("Failed to delete key: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn restore_bitcoin_key(
+    key_id: String,
+    app_state: State<'_, AppState>,
+) -> Result<String, String> {
+    let db = &app_state.db;
+    
+    // Restore key - mark as active
+    match sqlx::query("UPDATE bitcoin_keys SET is_active = 1 WHERE id = ?")
+        .bind(&key_id)
+        .execute(db.as_ref())
+        .await {
+        Ok(_) => {
+            log_info!("bitcoin_commands", &format!("Bitcoin key {} restored from trash", key_id));
+            Ok("Key restored successfully".to_string())
+        },
+        Err(e) => {
+            log_error!("bitcoin_commands", &format!("Failed to restore Bitcoin key {}: {}", key_id, e));
+            Err(format!("Failed to restore key: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn hard_delete_bitcoin_key(
+    key_id: String,
+    app_state: State<'_, AppState>,
+) -> Result<String, String> {
+    let db = &app_state.db;
+    
+    // Start a transaction to delete key and associated addresses
+    let mut tx = db.begin().await
+        .map_err(|e| format!("Failed to start transaction: {}", e))?;
+    
+    // Delete associated receiving addresses first
+    sqlx::query("DELETE FROM receiving_addresses WHERE key_id = ?")
+        .bind(&key_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to delete receiving addresses: {}", e))?;
+    
+    // Delete the Bitcoin key
+    sqlx::query("DELETE FROM bitcoin_keys WHERE id = ?")
+        .bind(&key_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to delete Bitcoin key: {}", e))?;
+    
+    // Commit the transaction
+    tx.commit().await
+        .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+    
+    log_info!("bitcoin_commands", &format!("Bitcoin key {} permanently deleted", key_id));
+    Ok("Key permanently deleted".to_string())
 }

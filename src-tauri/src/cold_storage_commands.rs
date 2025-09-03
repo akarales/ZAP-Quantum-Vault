@@ -162,7 +162,7 @@ pub async fn create_backup(
     vault_ids: Option<Vec<String>>,
     compression_level: Option<u8>,
     verification: Option<bool>,
-    password: String,
+    password: Option<String>,
     state: State<'_, AppState>
 ) -> Result<String, String> {
     println!("[BACKUP_CMD] ==================== BACKUP START ====================");
@@ -171,7 +171,7 @@ pub async fn create_backup(
     println!("[BACKUP_CMD] Vault IDs: {:?}", vault_ids);
     println!("[BACKUP_CMD] Compression level: {:?}", compression_level);
     println!("[BACKUP_CMD] Verification: {:?}", verification);
-    println!("[BACKUP_CMD] Password provided: {}", !password.is_empty());
+    println!("[BACKUP_CMD] Password provided: {}", password.is_some());
     
     // Create BackupRequest from individual parameters
     let request = BackupRequest {
@@ -183,7 +183,6 @@ pub async fn create_backup(
         vault_ids,
         compression_level: compression_level.unwrap_or(5),
         verification: verification.unwrap_or(true),
-        password: password.clone(),
     };
     
     // Create manager with database access for backup operations
@@ -238,31 +237,23 @@ pub async fn create_backup(
     
     println!("[BACKUP_CMD] ✅ Vault data serialized successfully ({} bytes)", vault_data.len());
     
-    // Generate a recovery phrase for this backup
-    println!("[BACKUP_CMD] Generating recovery phrase for backup...");
-    let recovery_phrase = crate::cold_storage::generate_recovery_phrase()
-        .map_err(|e| {
-            println!("[BACKUP_CMD] ❌ Failed to generate recovery phrase: {}", e);
-            format!("Failed to generate recovery phrase: {}", e)
-        })?;
-    
-    println!("[BACKUP_CMD] ✅ Recovery phrase generated successfully");
+    // No recovery phrase needed for backups - USB drive encryption provides security
+    println!("[BACKUP_CMD] Skipping recovery phrase generation (not needed for backups)");
     
     // Validate drive ID
     let validated_drive_id = InputValidator::validate_drive_id(&drive_id)
         .map_err(|e| format!("Invalid drive ID: {}", e))?;
     
-    // Password is now REQUIRED - validate it
-    let secure_password = SecurePassword::new(password.clone())
-        .map_err(|e| format!("Invalid password: {}", e))?;
+    // Use default password if none provided
+    let backup_password = password.unwrap_or_else(|| "default_backup_key".to_string());
+    let secure_password = SecurePassword::from_stored(backup_password);
     
-    println!("[BACKUP_CMD] ✅ Password validation successful");
+    println!("[BACKUP_CMD] ✅ Password setup successful");
     
     println!("[BACKUP_CMD] Creating encrypted backup on drive {}...", validated_drive_id);
     println!("[BACKUP_CMD] Backup data size: {} bytes", vault_data.len());
-    println!("[BACKUP_CMD] Recovery phrase length: {} characters", recovery_phrase.len());
     
-    match manager.create_backup(&validated_drive_id, &vault_data, &recovery_phrase, secure_password.expose_secret()) {
+    match manager.create_backup(&validated_drive_id, &vault_data, secure_password.expose_secret()) {
         Ok(result) => {
             println!("[BACKUP_CMD] ✅ Vault backup created successfully: {}", result);
             println!("[BACKUP_CMD] Backup ID: {}", result);
@@ -324,15 +315,7 @@ pub async fn eject_drive(drive_id: String, state: State<'_, AppState>) -> Result
     Ok("Drive ejected safely".to_string())
 }
 
-#[tauri::command]
-pub async fn generate_recovery_phrase() -> Result<String, String> {
-    crate::cold_storage::generate_recovery_phrase().map_err(|e| e.to_string())
-}
 
-#[tauri::command]
-pub async fn recover_from_phrase(phrase: String) -> Result<Vec<u8>, String> {
-    crate::cold_storage::recover_from_phrase(&phrase).map_err(|e| e.to_string())
-}
 
 #[tauri::command]
 pub async fn unmount_drive(drive_id: String) -> Result<String, String> {

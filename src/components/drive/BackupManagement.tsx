@@ -16,7 +16,6 @@ interface BackupManagementProps {
 interface BackupOptions {
   name: string;
   includeSettings: boolean;
-  encryptBackup: boolean;
 }
 
 export const BackupManagement: React.FC<BackupManagementProps> = ({
@@ -25,11 +24,9 @@ export const BackupManagement: React.FC<BackupManagementProps> = ({
 }) => {
   const [backupOptions, setBackupOptions] = useState<BackupOptions>({
     name: '',
-    includeSettings: true,
-    encryptBackup: true
+    includeSettings: true
   });
   
-  const [backupPassword, setBackupPassword] = useState('');
   const [backupInProgress, setBackupInProgress] = useState(false);
   const [backupProgress, setBackupProgress] = useState(0);
   const [backupMessage, setBackupMessage] = useState('');
@@ -58,10 +55,6 @@ export const BackupManagement: React.FC<BackupManagementProps> = ({
       return;
     }
 
-    if (!backupPassword.trim()) {
-      setBackupResult({ success: false, message: 'Please enter a backup password (min 12 chars, uppercase, lowercase, numbers, special chars)' });
-      return;
-    }
 
     setBackupInProgress(true);
     setBackupProgress(0);
@@ -75,7 +68,7 @@ export const BackupManagement: React.FC<BackupManagementProps> = ({
         vault_ids: null,
         compression_level: 5,
         verification: true,
-        password: backupPassword
+        password: null
       };
       
       console.log('[BACKUP_UI] Creating backup request:', backupRequest);
@@ -110,7 +103,7 @@ export const BackupManagement: React.FC<BackupManagementProps> = ({
         vault_ids: backupRequest.vault_ids,
         compression_level: backupRequest.compression_level,
         verification: backupRequest.verification,
-        password: backupRequest.password ? '[REDACTED]' : null
+        password: null
       });
       
       const result = await safeTauriInvoke('create_backup', {
@@ -119,7 +112,7 @@ export const BackupManagement: React.FC<BackupManagementProps> = ({
         vaultIds: backupRequest.vault_ids,
         compressionLevel: backupRequest.compression_level,
         verification: backupRequest.verification,
-        password: backupRequest.password
+        password: null
       });
       console.log('[BACKUP_UI] Backup result:', result);
       
@@ -178,18 +171,6 @@ export const BackupManagement: React.FC<BackupManagementProps> = ({
             />
           </div>
 
-          <div>
-            <Label htmlFor="backup-password" className="text-xs font-medium">Backup Password</Label>
-            <Input
-              id="backup-password"
-              type="password"
-              placeholder="Strong password (min 12 chars, mixed case, numbers, symbols)"
-              value={backupPassword}
-              onChange={(e) => setBackupPassword(e.target.value)}
-              disabled={backupInProgress}
-              className="mt-1 h-8 text-xs"
-            />
-          </div>
 
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
@@ -204,17 +185,6 @@ export const BackupManagement: React.FC<BackupManagementProps> = ({
               <Label htmlFor="include-settings" className="text-xs">Include vault settings</Label>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="encrypt-backup"
-                checked={backupOptions.encryptBackup}
-                onChange={(e) => setBackupOptions(prev => ({ ...prev, encryptBackup: e.target.checked }))}
-                disabled={backupInProgress}
-                className="w-3 h-3"
-              />
-              <Label htmlFor="encrypt-backup" className="text-xs">Encrypt backup</Label>
-            </div>
           </div>
         </div>
 

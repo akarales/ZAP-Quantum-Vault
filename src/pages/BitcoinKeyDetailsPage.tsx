@@ -43,6 +43,7 @@ interface BitcoinKey {
   tags?: string;
   balanceSatoshis?: number;
   transactionCount?: number;
+  encryptionPassword?: string; // Stored encryption password
 }
 
 interface ReceivingAddress {
@@ -437,6 +438,30 @@ export const BitcoinKeyDetailsPage = () => {
                     </code>
                   )}
                 </div>
+
+                {/* Encryption Password */}
+                {bitcoinKey.encryptionPassword && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm font-medium">Encryption Password</Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyToClipboard(bitcoinKey.encryptionPassword!, 'Encryption Password')}
+                        className="text-xs h-7"
+                      >
+                        <Copy className="h-3 w-3 mr-1" />
+                        Copy
+                      </Button>
+                    </div>
+                    <code className="block bg-accent/30 p-2 rounded text-xs font-mono break-all border border-border">
+                      {bitcoinKey.encryptionPassword}
+                    </code>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      🔐 Stored password for private key decryption
+                    </div>
+                  </div>
+                )}
 
               </CardContent>
             </Card>

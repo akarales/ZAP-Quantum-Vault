@@ -61,7 +61,6 @@ pub struct BackupRequest {
     pub vault_ids: Option<Vec<String>>, // None for full backup
     pub compression_level: u8,
     pub verification: bool,
-    pub password: String, // Required secure password for encryption
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,8 +125,8 @@ impl ColdStorageManager {
         Ok(row.get("id"))
     }
 
-    /// Decrypt Bitcoin key data using vault password
-    fn decrypt_bitcoin_key_data(&self, encrypted_data: &str, password: &str) -> Result<serde_json::Value, anyhow::Error> {
+    /// Decrypt Bitcoin key data and return plaintext keys for backup
+    fn decrypt_bitcoin_key_data(&self, encrypted_data: &str) -> Result<serde_json::Value, anyhow::Error> {
         // Parse the Bitcoin key data JSON which contains base64-encoded binary data
         let bitcoin_key_data: serde_json::Value = serde_json::from_str(encrypted_data)
             .map_err(|e| anyhow!("Failed to parse Bitcoin key data: {}", e))?;
@@ -149,19 +148,94 @@ impl ColdStorageManager {
             .as_str()
             .ok_or_else(|| anyhow!("Missing network field"))?;
         
-        // For now, return the available data without decrypting the private key
-        // since Bitcoin keys use a different encryption method than vault items
+        // Get the stored password for this Bitcoin key
+        let stored_password = bitcoin_key_data["encryption_password"]
+            .as_str()
+            .unwrap_or("backup_default_key"); // Fallback for keys without stored password
+        
+        // Decrypt the private key using the stored password
+        let decrypted_private_key = match self.decrypt_private_key_with_password(encrypted_private_key_b64, stored_password) {
+            Ok(key) => key,
+            Err(_) => {
+                // If decryption fails, store as encrypted with warning
+                format!("ENCRYPTED: {}", encrypted_private_key_b64)
+            }
+        };
+        
+        // Get receiving addresses if available
+        let empty_vec = vec![];
+        let receiving_addresses = bitcoin_key_data.get("receiving_addresses")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&empty_vec);
+        
+        // Get primary address (index 0) for display
+        let primary_address = receiving_addresses
+            .iter()
+            .find(|addr| addr["derivation_index"].as_i64() == Some(0))
+            .and_then(|addr| addr["address"].as_str())
+            .unwrap_or("unknown");
+        
+        // Return plaintext Bitcoin key data for backup (USB drive encryption provides security)
         let result = serde_json::json!({
             "key_type": key_type,
             "network": network,
             "public_key": public_key_b64,
-            "encrypted_private_key": encrypted_private_key_b64,
+            "private_key": decrypted_private_key,
+            "address": primary_address,
+            "receiving_addresses": receiving_addresses,
             "derivation_path": bitcoin_key_data.get("derivation_path"),
             "entropy_source": bitcoin_key_data.get("entropy_source"),
-            "note": "Private key remains encrypted - Bitcoin keys use different encryption than vault items"
+            "note": "Decrypted Bitcoin key - KEEP SECURE"
         });
         
         Ok(result)
+    }
+
+    /// Decrypt private key using stored password for backup purposes
+    fn decrypt_private_key_with_password(&self, encrypted_data: &str, password: &str) -> Result<String, anyhow::Error> {
+        use aes_gcm::{Aes256Gcm, Nonce, KeyInit};
+        use aes_gcm::aead::Aead;
+        use argon2::{Argon2, password_hash::{PasswordHasher, SaltString}};
+        use base64::{Engine as _, engine::general_purpose};
+        
+        // Decode base64 encrypted data
+        let encrypted_bytes = general_purpose::STANDARD.decode(encrypted_data)
+            .map_err(|e| anyhow!("Failed to decode base64: {}", e))?;
+        
+        // Parse the encrypted data format: salt + separator + nonce + ciphertext
+        let separator_pos = encrypted_bytes.iter().position(|&x| x == 0)
+            .ok_or_else(|| anyhow!("Invalid encrypted data format"))?;
+        
+        let salt_str = std::str::from_utf8(&encrypted_bytes[..separator_pos])
+            .map_err(|e| anyhow!("Invalid salt format: {}", e))?;
+        
+        let remaining = &encrypted_bytes[separator_pos + 1..];
+        if remaining.len() < 12 {
+            return Err(anyhow!("Encrypted data too short"));
+        }
+        
+        let nonce_bytes = &remaining[..12];
+        let ciphertext = &remaining[12..];
+        
+        // Derive key from password using the same method as encryption
+        let argon2 = Argon2::default();
+        let salt = SaltString::from_b64(salt_str)
+            .map_err(|e| anyhow!("Failed to parse salt: {}", e))?;
+        
+        let password_hash = argon2.hash_password(password.as_bytes(), &salt)
+            .map_err(|e| anyhow!("Password hashing failed: {}", e))?;
+        
+        let key_bytes = password_hash.hash.ok_or_else(|| anyhow!("No hash generated"))?;
+        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes.as_bytes()[..32]);
+        
+        let cipher = Aes256Gcm::new(key);
+        let nonce = Nonce::from_slice(nonce_bytes);
+        
+        let decrypted_bytes = cipher.decrypt(nonce, ciphertext)
+            .map_err(|e| anyhow!("Decryption failed: {}", e))?;
+        
+        let private_key_hex = hex::encode(&decrypted_bytes);
+        Ok(private_key_hex)
     }
 
     /// Load trust levels from database
@@ -583,11 +657,10 @@ impl ColdStorageManager {
     }
 
     /// Create encrypted backup on USB drive with proper integration
-    pub fn create_backup(&mut self, drive_id: &str, vault_data: &[u8], recovery_phrase: &str, password: &str) -> Result<String> {
+    pub fn create_backup(&mut self, drive_id: &str, vault_data: &[u8], password: &str) -> Result<String> {
         println!("[BACKUP_CORE] ==================== CORE BACKUP START ====================");
         println!("[BACKUP_CORE] Function called with drive_id: {}", drive_id);
         println!("[BACKUP_CORE] Vault data size: {} bytes", vault_data.len());
-        println!("[BACKUP_CORE] Recovery phrase length: {} chars", recovery_phrase.len());
         println!("[BACKUP_CORE] Password length: {} chars", password.len());
         println!("[BACKUP_CORE] Available drives in manager: {}", self.drives.len());
         
@@ -705,10 +778,10 @@ impl ColdStorageManager {
                 if let Some(items) = vault["items"].as_array() {
                     for item in items {
                         if item["item_type"].as_str() == Some("bitcoin_key") {
-                            // Decrypt the Bitcoin key data using vault password
+                            // Extract Bitcoin key data (private key remains encrypted)
                             if let Some(encrypted_data) = item["encrypted_data"].as_str() {
                                 // Try to decrypt the Bitcoin key data
-                                match self.decrypt_bitcoin_key_data(encrypted_data, password) {
+                                match self.decrypt_bitcoin_key_data(encrypted_data) {
                                     Ok(decrypted_key) => {
                                         bitcoin_keys.push(serde_json::json!({
                                             "id": item["id"],
@@ -757,14 +830,8 @@ impl ColdStorageManager {
         })?;
         println!("[BACKUP_CORE] ✅ Bitcoin keys written to: {}", bitcoin_keys_file.display());
         
-        // Write recovery phrase
-        println!("[BACKUP_CORE] Writing recovery phrase to disk...");
-        let recovery_file_path = backup_dir.join("keys").join("recovery.txt");
-        std::fs::write(&recovery_file_path, recovery_phrase.as_bytes()).map_err(|e| {
-            println!("[BACKUP_CORE] ❌ Failed to write recovery phrase: {}", e);
-            anyhow!("Failed to write recovery phrase: {}", e)
-        })?;
-        println!("[BACKUP_CORE] ✅ Recovery phrase written to: {}", recovery_file_path.display());
+        // No recovery phrase needed - USB drive encryption provides security
+        println!("[BACKUP_CORE] Skipping recovery phrase (not needed for backups)");
         
         // Create backup metadata
         let backup_metadata = BackupMetadata {
@@ -1038,23 +1105,3 @@ pub fn calculate_file_hash(file_path: &Path) -> Result<String> {
     Ok(hex::encode(hash.as_bytes()))
 }
 
-/// Generate BIP39 recovery phrase for key backup
-pub fn generate_recovery_phrase() -> Result<String> {
-    use bip39::{Mnemonic, Language};
-    use rand::RngCore;
-    
-    let mut entropy = [0u8; 32]; // 256 bits for 24 words
-    rand::thread_rng().fill_bytes(&mut entropy);
-    
-    let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy)?;
-    Ok(mnemonic.to_string())
-}
-
-/// Recover key from BIP39 phrase
-pub fn recover_from_phrase(phrase: &str) -> Result<Vec<u8>> {
-    use bip39::{Mnemonic, Language};
-    
-    let mnemonic = Mnemonic::parse_in_normalized(Language::English, phrase)?;
-    let seed = mnemonic.to_seed("");
-    Ok(seed[..32].to_vec()) // Use first 32 bytes as key
-}

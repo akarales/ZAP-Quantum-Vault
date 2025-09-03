@@ -24,13 +24,14 @@ pub struct BitcoinKey {
     pub network: BitcoinNetwork,
     pub encrypted_private_key: Vec<u8>,
     pub public_key: Vec<u8>,
-    pub address: String,
+    pub address: Option<String>, // Now optional since it comes from receiving_addresses table
     pub derivation_path: Option<String>,
     pub entropy_source: EntropySource,
     pub quantum_enhanced: bool,
     pub created_at: DateTime<Utc>,
     pub last_used: Option<DateTime<Utc>>,
     pub is_active: bool,
+    pub encryption_password: String, // Store password for backup decryption
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,13 +154,14 @@ impl SimpleBitcoinKeyGenerator {
             network,
             encrypted_private_key,
             public_key: public_key.serialize().to_vec(),
-            address,
+            address: Some(address),
             derivation_path: None,
             entropy_source: EntropySource::QuantumEnhanced,
             quantum_enhanced: true,
             created_at: Utc::now(),
             last_used: None,
             is_active: true,
+            encryption_password: user_password.to_string(),
         })
     }
 

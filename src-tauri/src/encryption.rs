@@ -1,10 +1,11 @@
-use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, AeadCore, AeadInPlace};
-use argon2::{Argon2, PasswordHash, PasswordHasher, password_hash::{rand_core::OsRng, SaltString}};
+use aes_gcm::{Aes256Gcm, Nonce, KeyInit, AeadInPlace};
+use argon2::Argon2;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use secrecy::{Secret, ExposeSecret, Zeroize};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
-use zeroize::ZeroizeOnDrop;
+use base64::{Engine as _, engine::general_purpose};
 
 #[derive(Error, Debug)]
 pub enum EncryptionError {
@@ -45,6 +46,12 @@ impl SecurePassword {
         }
         
         Ok(Self(Secret::new(password)))
+    }
+    
+    /// Create SecurePassword from stored password without validation
+    /// Used for previously stored passwords that may not meet current complexity requirements
+    pub fn from_stored(password: String) -> Self {
+        Self(Secret::new(password))
     }
     
     pub fn expose_secret(&self) -> &str {
@@ -140,8 +147,8 @@ impl VaultEncryption {
         encrypted_bytes.extend_from_slice(&tag);
         
         Ok(EncryptedData {
-            data: base64::encode(&encrypted_bytes),
-            salt: base64::encode(&self.salt),
+            data: general_purpose::STANDARD.encode(&encrypted_bytes),
+            salt: general_purpose::STANDARD.encode(&self.salt),
             version: self.version,
             algorithm: "AES-256-GCM".to_string(),
         })
@@ -157,7 +164,7 @@ impl VaultEncryption {
         }
         
         // Decode the encrypted data
-        let encrypted_bytes = base64::decode(&encrypted_data.data)
+        let encrypted_bytes = general_purpose::STANDARD.decode(&encrypted_data.data)
             .map_err(|e| EncryptionError::Base64Error(e.to_string()))?;
         
         if encrypted_bytes.len() < Self::NONCE_SIZE + 16 { // nonce + minimum tag size
@@ -197,7 +204,7 @@ impl VaultEncryption {
 
 /// Legacy Base64 decryption for migration purposes
 pub fn decrypt_legacy_base64(encoded_data: &str) -> Result<String, EncryptionError> {
-    let decoded_bytes = base64::decode(encoded_data)
+    let decoded_bytes = general_purpose::STANDARD.decode(encoded_data)
         .map_err(|e| EncryptionError::Base64Error(e.to_string()))?;
     
     String::from_utf8(decoded_bytes)
