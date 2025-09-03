@@ -45,6 +45,14 @@ ZAP Quantum Vault is a next-generation cryptographic key management system that 
 - **Receiving Addresses**: Generate unlimited receiving addresses for enhanced privacy
 - **Quantum Enhancement**: All Bitcoin keys use quantum-enhanced entropy by default
 
+### 🔷 **Ethereum Key Management**
+- **Native Ethereum Support**: Full secp256k1 key generation and management
+- **Account-Based Model**: Single address per key for all Ethereum transactions
+- **Network Support**: Mainnet, Testnets (Goerli, Sepolia), and custom networks
+- **Quantum-Enhanced Entropy**: Post-quantum entropy sources for maximum security
+- **Private Key Export**: Secure backup with proper hex formatting
+- **Public Key Derivation**: Cryptographically derived from private keys
+
 ### 🏦 **Vault Management**
 - **Multi-Vault Architecture**: Organize keys by purpose, network, or security level
 - **Role-Based Access**: Granular permissions and access control
@@ -53,9 +61,12 @@ ZAP Quantum Vault is a next-generation cryptographic key management system that 
 
 ### 💾 **Cold Storage Integration**
 - **USB Drive Support**: Secure air-gapped storage on removable media
+- **Multi-Asset Backup**: Bitcoin and Ethereum keys with full metadata
+- **Decrypted Key Export**: Private keys exported in proper hex format for recovery
 - **Quantum-Safe Headers**: Post-quantum encrypted backup manifests
 - **Integrity Verification**: Cryptographic backup validation
 - **Cross-Platform Recovery**: Restore keys across different systems
+- **Structured Backup Format**: Organized JSON files for easy key management
 
 ### 🎨 **User Experience**
 - **Modern UI**: Built with React, TypeScript, and shadcn/ui components
@@ -364,6 +375,8 @@ zap_vault/
 │   │   ├── AuthPage.tsx             # Authentication
 │   │   ├── BitcoinKeysPage.tsx      # Bitcoin key management
 │   │   ├── BitcoinKeyDetailsPage.tsx # Key details & addresses
+│   │   ├── EthereumKeysPage.tsx     # Ethereum key management
+│   │   ├── EthereumKeyDetailsPage.tsx # Ethereum key details
 │   │   └── VaultDetailsPage.tsx     # Vault management
 │   ├── 📁 router/                   # React Router configuration
 │   ├── 📁 themes/                   # Theme configurations
@@ -373,6 +386,8 @@ zap_vault/
 │   │   ├── quantum_crypto.rs        # Post-quantum cryptography
 │   │   ├── bitcoin_keys.rs          # Bitcoin key generation
 │   │   ├── bitcoin_commands.rs      # Bitcoin operations
+│   │   ├── ethereum_keys.rs         # Ethereum key generation
+│   │   ├── ethereum_commands.rs     # Ethereum operations
 │   │   ├── cold_storage.rs          # USB backup system
 │   │   ├── database.rs              # SQLite operations
 │   │   └── lib.rs                   # Tauri commands
@@ -396,6 +411,14 @@ zap_vault/
 - **HD Wallet Integration**: BIP32/BIP44 compliant hierarchical deterministic wallets
 - **Secure Key Storage**: AES-256-GCM encryption with Argon2id key derivation
 
+### **Ethereum Security**
+- **secp256k1 Implementation**: Native elliptic curve cryptography with quantum-enhanced entropy
+- **Account-Based Model**: Single address per key with comprehensive metadata tracking
+- **Network Flexibility**: Support for mainnet, testnets, and custom Ethereum networks
+- **Private Key Protection**: ChaCha20Poly1305 encryption with secure key derivation
+- **Public Key Derivation**: Cryptographically derived from private keys using secp256k1
+- **Backup Integration**: Full key export with proper hex formatting for recovery
+
 ### **Data Protection**
 - **Encryption at Rest**: All sensitive data encrypted in SQLite database
 - **Memory Safety**: Rust's ownership model prevents buffer overflows and memory leaks
@@ -414,17 +437,21 @@ zap_vault/
 
 ### **Key Management Workflow**
 ```bash
-# 1. Generate a new Bitcoin key
-Click "Generate New Bitcoin Key" → Select network → Enter password
+# 1. Generate cryptocurrency keys
+Bitcoin: Click "Generate New Bitcoin Key" → Select network → Enter password
+Ethereum: Click "Generate New Ethereum Key" → Select network → Enter password
 
 # 2. View key details
-Click on any key → View addresses → Generate receiving addresses
+Bitcoin: Click on key → View addresses → Generate receiving addresses
+Ethereum: Click on key → View address → Export private key
 
 # 3. Cold storage backup
 Insert USB drive → Select keys → Create encrypted backup
+Backup includes: Bitcoin keys, Ethereum keys, metadata, recovery info
 
 # 4. Recovery
 Insert backup USB → Verify integrity → Restore selected keys
+Supports: Cross-platform recovery, individual key restoration
 ```
 
 ---
