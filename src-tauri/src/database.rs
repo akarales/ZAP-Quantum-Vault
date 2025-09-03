@@ -250,6 +250,91 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
     .execute(&pool)
     .await?;
     
+    // Ethereum keys table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ethereum_keys (
+            id TEXT PRIMARY KEY,
+            vault_id TEXT NOT NULL,
+            key_type TEXT NOT NULL, -- 'standard', 'hd_wallet'
+            network TEXT NOT NULL, -- 'mainnet', 'sepolia', 'goerli'
+            address TEXT NOT NULL UNIQUE,
+            encrypted_private_key BLOB NOT NULL,
+            public_key BLOB NOT NULL,
+            derivation_path TEXT,
+            entropy_source TEXT NOT NULL, -- 'system', 'quantum', 'quantum_enhanced', 'hardware'
+            quantum_enhanced BOOLEAN DEFAULT FALSE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_used DATETIME,
+            is_active BOOLEAN DEFAULT TRUE,
+            encryption_password TEXT,
+            FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
+    // Ethereum key metadata
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ethereum_key_metadata (
+            key_id TEXT PRIMARY KEY,
+            label TEXT,
+            description TEXT,
+            tags TEXT, -- JSON array
+            balance_wei TEXT DEFAULT '0', -- Store as string to handle large numbers
+            transaction_count INTEGER DEFAULT 0,
+            last_transaction DATETIME,
+            backup_count INTEGER DEFAULT 0,
+            last_backup DATETIME,
+            FOREIGN KEY (key_id) REFERENCES ethereum_keys(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
+    // Ethereum transactions table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ethereum_transactions (
+            id TEXT PRIMARY KEY,
+            key_id TEXT NOT NULL,
+            transaction_hash TEXT NOT NULL UNIQUE,
+            block_number INTEGER,
+            transaction_index INTEGER,
+            from_address TEXT NOT NULL,
+            to_address TEXT,
+            value_wei TEXT NOT NULL, -- Store as string to handle large numbers
+            gas_price TEXT,
+            gas_limit INTEGER,
+            gas_used INTEGER,
+            transaction_fee_wei TEXT,
+            status TEXT NOT NULL, -- 'pending', 'confirmed', 'failed'
+            transaction_type TEXT NOT NULL, -- 'send', 'receive', 'contract_call'
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            confirmed_at DATETIME,
+            FOREIGN KEY (key_id) REFERENCES ethereum_keys(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
+    // Ethereum key backups table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ethereum_key_backups (
+            id TEXT PRIMARY KEY,
+            key_id TEXT NOT NULL,
+            backup_type TEXT NOT NULL, -- 'cold_storage', 'usb_drive', 'paper_wallet'
+            backup_location TEXT NOT NULL,
+            backup_data BLOB NOT NULL,
+            encryption_method TEXT NOT NULL,
+            checksum TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            verified_at DATETIME,
+            is_verified BOOLEAN DEFAULT FALSE,
+            FOREIGN KEY (key_id) REFERENCES ethereum_keys(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
     // Seed database with admin user and test data
     seed_database(&pool).await?;
     

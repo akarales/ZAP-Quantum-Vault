@@ -20,7 +20,8 @@ import {
   Headphones,
   Building2,
   Atom,
-  Snowflake
+  Snowflake,
+  Bitcoin
 } from 'lucide-react';
 
 interface SidebarProps {}
@@ -37,7 +38,8 @@ const navigationItems = [
   {
     title: 'Security',
     items: [
-      { name: 'Key Management', href: '/keys', icon: Key },
+      { name: 'Bitcoin Keys', href: '/bitcoin-keys', icon: Bitcoin },
+      { name: 'Ethereum Keys', href: '/ethereum-keys', icon: Key },
       { name: 'Secure Storage', href: '/storage', icon: Database },
       { name: 'Cold Storage', href: '/cold-storage', icon: Snowflake },
       { name: 'Trusted Drives', href: '/trusted-drives', icon: HardDrive },

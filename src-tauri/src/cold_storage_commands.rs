@@ -253,7 +253,7 @@ pub async fn create_backup(
     println!("[BACKUP_CMD] Creating encrypted backup on drive {}...", validated_drive_id);
     println!("[BACKUP_CMD] Backup data size: {} bytes", vault_data.len());
     
-    match manager.create_backup(&validated_drive_id, &vault_data, secure_password.expose_secret()) {
+    match manager.create_backup(&validated_drive_id, &vault_data, secure_password.expose_secret()).await {
         Ok(result) => {
             println!("[BACKUP_CMD] ✅ Vault backup created successfully: {}", result);
             println!("[BACKUP_CMD] Backup ID: {}", result);

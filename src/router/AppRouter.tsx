@@ -5,6 +5,8 @@ import { AuthPage } from '@/pages/AuthPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { BitcoinKeysPage } from '@/pages/BitcoinKeysPage';
 import { BitcoinKeyDetailsPage } from '@/pages/BitcoinKeyDetailsPage';
+import { EthereumKeysPage } from '@/pages/EthereumKeysPage';
+import { EthereumKeyDetailsPage } from '@/pages/EthereumKeyDetailsPage';
 import { SecurityCenterPage } from '@/pages/SecurityCenterPage';
 import { UserManagementPage } from '@/pages/UserManagementPage';
 import { AdminResetPage } from '@/pages/AdminResetPage';
@@ -87,6 +89,19 @@ export const AppRouter: React.FC = () => {
         <Route path="/bitcoin-keys/:keyId" element={
           <ProtectedRoute>
             <BitcoinKeyDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        {/* Ethereum Keys Routes */}
+        <Route path="/ethereum-keys" element={
+          <ProtectedRoute>
+            <EthereumKeysPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/ethereum-keys/:keyId" element={
+          <ProtectedRoute>
+            <EthereumKeyDetailsPage />
           </ProtectedRoute>
         } />
         

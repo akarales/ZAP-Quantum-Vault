@@ -20,7 +20,9 @@ import {
   HelpCircle,
   Headphones,
   Building2,
-  Atom
+  Atom,
+  Bitcoin,
+  Snowflake
 } from 'lucide-react';
 
 const navigationItems = [
@@ -35,8 +37,10 @@ const navigationItems = [
   {
     title: 'Security',
     items: [
-      { name: 'Key Management', href: '/keys', icon: Key },
+      { name: 'Bitcoin Keys', href: '/bitcoin-keys', icon: Bitcoin },
+      { name: 'Ethereum Keys', href: '/ethereum-keys', icon: Key },
       { name: 'Secure Storage', href: '/storage', icon: Database },
+      { name: 'Cold Storage', href: '/cold-storage', icon: Snowflake },
       { name: 'Security Center', href: '/security', icon: Shield },
       { name: 'Air Gap Mode', href: '/airgap', icon: HardDrive },
     ]

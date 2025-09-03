@@ -9,6 +9,8 @@ use sqlx::{SqlitePool, Row};
 use tauri::State;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use base64::{Engine as _, engine::general_purpose};
+use secp256k1::{Secp256k1, SecretKey, PublicKey};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsbDrive {
@@ -657,7 +659,7 @@ impl ColdStorageManager {
     }
 
     /// Create encrypted backup on USB drive with proper integration
-    pub fn create_backup(&mut self, drive_id: &str, vault_data: &[u8], password: &str) -> Result<String> {
+    pub async fn create_backup(&mut self, drive_id: &str, vault_data: &[u8], password: &str) -> Result<String> {
         println!("[BACKUP_CORE] ==================== CORE BACKUP START ====================");
         println!("[BACKUP_CORE] Function called with drive_id: {}", drive_id);
         println!("[BACKUP_CORE] Vault data size: {} bytes", vault_data.len());
@@ -829,6 +831,115 @@ impl ColdStorageManager {
             anyhow!("Failed to write Bitcoin keys file: {}", e)
         })?;
         println!("[BACKUP_CORE] ✅ Bitcoin keys written to: {}", bitcoin_keys_file.display());
+        
+        // Extract and save Ethereum keys from database
+        println!("[BACKUP_CORE] Extracting Ethereum keys from database...");
+        let ethereum_keys_file = backup_dir.join("keys").join("ethereum_keys.json");
+        
+        // Query Ethereum keys directly from database
+        let mut ethereum_keys = Vec::new();
+        let ethereum_query_result = if let Some(ref db_pool) = self.db_pool {
+            sqlx::query(
+                "SELECT id, vault_id, key_type, network, encrypted_private_key, public_key, address, derivation_path, entropy_source, quantum_enhanced, created_at, encryption_password FROM ethereum_keys WHERE is_active = 1"
+            ).fetch_all(db_pool).await
+        } else {
+            println!("[BACKUP_CORE] ⚠️ No database connection available for Ethereum keys");
+            Err(sqlx::Error::Configuration("No database connection".into()))
+        };
+        
+        match ethereum_query_result {
+            Ok(rows) => {
+                for row in rows {
+                    let key_id: String = row.get("id");
+                    let vault_id: String = row.get("vault_id");
+                    let key_type: String = row.get("key_type");
+                    let network: String = row.get("network");
+                    let encrypted_private_key: Vec<u8> = row.get("encrypted_private_key");
+                    let public_key: Vec<u8> = row.get("public_key");
+                    let address: String = row.get("address");
+                    let derivation_path: Option<String> = row.get("derivation_path");
+                    let entropy_source: String = row.get("entropy_source");
+                    let quantum_enhanced: bool = row.get("quantum_enhanced");
+                    let created_at: String = row.get("created_at");
+                    let encryption_password: String = row.get("encryption_password");
+                    
+                    // Try to decrypt the private key using the EthereumKeyGenerator
+                    let generator = crate::ethereum_keys::EthereumKeyGenerator::new();
+                    match generator.decrypt_private_key(&encrypted_private_key, &encryption_password) {
+                        Ok(decrypted_private_key_bytes) => {
+                            let private_key_hex = hex::encode(&decrypted_private_key_bytes);
+                            
+                            // Derive the public key from the private key
+                            let secp = Secp256k1::new();
+                            let public_key_hex = match SecretKey::from_slice(&decrypted_private_key_bytes) {
+                                Ok(secret_key) => {
+                                    let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+                                    format!("0x{}", hex::encode(public_key.serialize_uncompressed()))
+                                },
+                                Err(_) => {
+                                    // Fallback to base64 encoded database value if derivation fails
+                                    general_purpose::STANDARD.encode(&public_key)
+                                }
+                            };
+                            
+                            ethereum_keys.push(serde_json::json!({
+                                "id": key_id,
+                                "vault_id": vault_id,
+                                "key_type": key_type,
+                                "network": network,
+                                "address": address,
+                                "private_key": private_key_hex,
+                                "public_key": public_key_hex,
+                                "derivation_path": derivation_path,
+                                "entropy_source": entropy_source,
+                                "quantum_enhanced": quantum_enhanced,
+                                "created_at": created_at,
+                                "encryption_password": encryption_password,
+                                "note": "Decrypted Ethereum key - KEEP SECURE"
+                            }));
+                            println!("[BACKUP_CORE] ✅ Decrypted Ethereum key: {}", key_id);
+                        },
+                        Err(e) => {
+                            println!("[BACKUP_CORE] ⚠️ Failed to decrypt Ethereum key {}: {}", key_id, e);
+                            // Save encrypted version with warning
+                            ethereum_keys.push(serde_json::json!({
+                                "id": key_id,
+                                "vault_id": vault_id,
+                                "key_type": key_type,
+                                "network": network,
+                                "address": address,
+                                "encrypted_private_key": general_purpose::STANDARD.encode(&encrypted_private_key),
+                                "public_key": general_purpose::STANDARD.encode(&public_key),
+                                "derivation_path": derivation_path,
+                                "entropy_source": entropy_source,
+                                "quantum_enhanced": quantum_enhanced,
+                                "created_at": created_at,
+                                "encryption_password": encryption_password,
+                                "error": format!("Failed to decrypt: {}", e),
+                                "note": "Could not decrypt - check encryption password"
+                            }));
+                        }
+                    }
+                }
+                println!("[BACKUP_CORE] ✅ Processed {} Ethereum keys", ethereum_keys.len());
+            },
+            Err(e) => {
+                println!("[BACKUP_CORE] ⚠️ Failed to query Ethereum keys from database: {}", e);
+                // Continue with empty ethereum_keys array
+            }
+        }
+        
+        // Write Ethereum keys as JSON
+        let ethereum_keys_json = serde_json::to_string_pretty(&ethereum_keys).map_err(|e| {
+            println!("[BACKUP_CORE] ❌ Failed to serialize Ethereum keys: {}", e);
+            anyhow!("Failed to serialize Ethereum keys: {}", e)
+        })?;
+        
+        std::fs::write(&ethereum_keys_file, ethereum_keys_json).map_err(|e| {
+            println!("[BACKUP_CORE] ❌ Failed to write Ethereum keys file: {}", e);
+            anyhow!("Failed to write Ethereum keys file: {}", e)
+        })?;
+        println!("[BACKUP_CORE] ✅ Ethereum keys written to: {}", ethereum_keys_file.display());
         
         // No recovery phrase needed - USB drive encryption provides security
         println!("[BACKUP_CORE] Skipping recovery phrase (not needed for backups)");
@@ -1073,6 +1184,7 @@ impl ColdStorageManager {
         
         Ok(result)
     }
+
 
     /// Safely eject a USB drive
     pub fn eject_drive(&self, drive_id: &str) -> Result<()> {

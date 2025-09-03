@@ -7,6 +7,8 @@ mod commands;
 mod auth_middleware;
 mod bitcoin_commands;
 mod bitcoin_keys_clean;
+mod ethereum_commands;
+mod ethereum_keys;
 mod cold_storage;
 mod cold_storage_commands;
 pub mod crypto;
@@ -33,6 +35,7 @@ use crate::jwt_commands::{refresh_token, logout_user, validate_session, get_toke
 use crate::vault_commands::{decrypt_vault_item_with_password, migrate_vault_item_to_real_encryption, create_vault_item_with_encryption};
 use crate::usb_password_commands::{save_usb_drive_password, get_usb_drive_password, get_user_usb_drive_passwords, update_usb_drive_password_hint, get_all_trusted_drives, delete_trusted_drive};
 use crate::bitcoin_commands::{generate_bitcoin_key, generate_hd_wallet, list_bitcoin_keys, list_hd_wallets, derive_hd_key, export_keys_to_usb, get_key_backup_history, list_receiving_addresses, generate_receiving_address, list_trashed_bitcoin_keys, restore_bitcoin_key, hard_delete_bitcoin_key, decrypt_private_key, get_bitcoin_key_details, delete_bitcoin_key, update_bitcoin_key_metadata};
+use crate::ethereum_commands::{generate_ethereum_key, list_ethereum_keys, decrypt_ethereum_private_key, update_ethereum_key_metadata, trash_ethereum_key, restore_ethereum_key, get_ethereum_network_info, export_ethereum_keys_to_usb, get_ethereum_key_details};
 // Vault commands temporarily disabled
 // Offline vault commands temporarily disabled
 use crate::logging::init_logger;
@@ -150,6 +153,15 @@ pub fn run() {
             restore_bitcoin_key,
             update_bitcoin_key_metadata,
             list_trashed_bitcoin_keys,
+            generate_ethereum_key,
+            list_ethereum_keys,
+            get_ethereum_key_details,
+            decrypt_ethereum_private_key,
+            update_ethereum_key_metadata,
+            trash_ethereum_key,
+            restore_ethereum_key,
+            get_ethereum_network_info,
+            export_ethereum_keys_to_usb,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

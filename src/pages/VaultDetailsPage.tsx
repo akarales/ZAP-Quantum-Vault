@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowLeft, Key, Eye, Edit, Trash2, Copy, Clock, Tag, Bitcoin, Shield } from 'lucide-react';
+import { ArrowLeft, Key, Eye, Edit, Trash2, Copy, Clock, Tag, Bitcoin, Shield, Zap } from 'lucide-react';
 
 interface Vault {
   id: string;
@@ -41,12 +41,25 @@ interface BitcoinKey {
   transactionCount: number;
 }
 
+interface EthereumKey {
+  id: string;
+  keyType: string;
+  network: string;
+  address: string;
+  derivationPath?: string;
+  entropySource: string;
+  quantumEnhanced: boolean;
+  createdAt: string;
+  encryptionPassword?: string;
+}
+
 const VaultDetailsPage: React.FC = () => {
   const { vaultId } = useParams<{ vaultId: string }>();
   const navigate = useNavigate();
   const [vault, setVault] = useState<Vault | null>(null);
   const [items, setItems] = useState<VaultItem[]>([]);
   const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
+  const [ethereumKeys, setEthereumKeys] = useState<EthereumKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -103,6 +116,19 @@ const VaultDetailsPage: React.FC = () => {
       } catch (keyError) {
         console.error('[VaultDetailsPage] Failed to load Bitcoin keys:', keyError);
         setBitcoinKeys([]);
+      }
+
+      // Load Ethereum keys for this vault
+      try {
+        console.log('[VaultDetailsPage] Loading Ethereum keys...');
+        const ethKeys = await invoke<EthereumKey[]>('list_ethereum_keys', {
+          vaultId: vaultId
+        });
+        console.log('[VaultDetailsPage] Loaded Ethereum keys:', ethKeys.length);
+        setEthereumKeys(ethKeys);
+      } catch (keyError) {
+        console.error('[VaultDetailsPage] Failed to load Ethereum keys:', keyError);
+        setEthereumKeys([]);
       }
     } catch (err) {
       console.error('[VaultDetailsPage] Failed to load vault details:', err);
@@ -236,6 +262,7 @@ const VaultDetailsPage: React.FC = () => {
               <div className="space-y-1 text-gray-300">
                 <div>Vault Items: {items.length}</div>
                 <div>Bitcoin Keys: {bitcoinKeys.length}</div>
+                <div>Ethereum Keys: {ethereumKeys.length}</div>
                 <div>Created: {formatDate(vault.created_at)}</div>
                 <div>Updated: {formatDate(vault.updated_at)}</div>
               </div>
@@ -336,6 +363,77 @@ const VaultDetailsPage: React.FC = () => {
                       <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleCopyToClipboard(key.address)}
+                          className="p-2 hover:bg-muted rounded transition-colors"
+                          title="Copy Address"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Ethereum Keys Subsection */}
+          {ethereumKeys.length > 0 && (
+            <div className="border-b border-gray-700 last:border-b-0">
+              <div className="px-6 py-3 bg-gray-750 border-b border-gray-700">
+                <h3 className="text-lg font-medium flex items-center space-x-2">
+                  <Zap className="w-4 h-4 text-blue-400" />
+                  <span>Ethereum Keys ({ethereumKeys.length})</span>
+                </h3>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {ethereumKeys.map((key) => (
+                  <div
+                    key={key.id}
+                    className="px-6 py-4 border-b border-border last:border-b-0 hover:bg-muted/50 transition-colors group cursor-pointer"
+                    onClick={() => navigate(`/ethereum-keys/${key.id}`)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            <Zap className="w-5 h-5 text-blue-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <h4 className="text-base font-medium truncate">{key.address}</h4>
+                              <span className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded">
+                                {key.network}
+                              </span>
+                              {key.quantumEnhanced && (
+                                <span className="text-xs bg-purple-600 text-white px-2 py-1 rounded flex items-center space-x-1">
+                                  <Shield className="w-3 h-3" />
+                                  <span>Quantum</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-4 text-sm text-muted-foreground mt-1">
+                              <div className="flex items-center space-x-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatDate(key.createdAt)}</span>
+                              </div>
+                              <div>Key Type: {key.keyType}</div>
+                              <div>Source: {key.entropySource}</div>
+                              {key.encryptionPassword && (
+                                <div className="flex items-center space-x-1">
+                                  <Key className="w-3 h-3" />
+                                  <span>Password: {key.encryptionPassword}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyToClipboard(key.address);
+                          }}
                           className="p-2 hover:bg-muted rounded transition-colors"
                           title="Copy Address"
                         >
