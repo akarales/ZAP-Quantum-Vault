@@ -377,10 +377,7 @@ zap_vault/
 │   │   ├── database.rs              # SQLite operations
 │   │   └── lib.rs                   # Tauri commands
 │   └── Cargo.toml                   # Rust dependencies
-├── 📁 docs/                         # Documentation
-│   ├── QUANTUM_BITCOIN_KEY_GENERATION.md
-│   └── QUANTUM_FORMATTING_GUIDE.md
-└── 📄 ZAP_QUANTUM_VAULT_AUDIT_REPORT.md # Security audit
+└── 📄 README.md                     # This documentation
 ```
 
 ---
@@ -492,10 +489,11 @@ cargo tauri build --target x86_64-unknown-linux-gnu # Linux
 
 ## 📚 Documentation
 
-- **[Quantum Bitcoin Key Generation](docs/QUANTUM_BITCOIN_KEY_GENERATION.md)**: Technical deep-dive into quantum-enhanced key generation
-- **[Security Audit Report](ZAP_QUANTUM_VAULT_AUDIT_REPORT.md)**: Comprehensive security analysis and compliance verification
-- **[API Documentation](docs/API.md)**: Tauri command reference and usage examples
-- **[Deployment Guide](docs/DEPLOYMENT.md)**: Production deployment and configuration
+All technical documentation is integrated into this README. For additional support:
+
+- **GitHub Issues**: Report bugs and request features
+- **Code Comments**: Inline documentation in source files
+- **Type Definitions**: TypeScript interfaces for API reference
 
 ---
 
