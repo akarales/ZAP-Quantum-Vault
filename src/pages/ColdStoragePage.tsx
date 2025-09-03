@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MountButton } from '../components/mount/MountButton';
+import { setDriveTrust } from '../utils/tauri-api';
 import { 
   HardDrive, 
   Usb, 
@@ -53,6 +54,7 @@ export const ColdStoragePage = () => {
   const [activeTab, setActiveTab] = useState('drives');
   
 
+  // Load cached drives on component mount, but no automatic scanning
   useEffect(() => {
     detectDrives();
   }, []);
@@ -61,6 +63,7 @@ export const ColdStoragePage = () => {
     setRefreshing(true);
     setError('');
     try {
+      // Use cached drives for initial load
       const drives = await invoke<UsbDrive[]>('detect_usb_drives');
       setUsbDrives(drives);
     } catch (err) {
@@ -70,10 +73,25 @@ export const ColdStoragePage = () => {
     }
   };
 
+  const refreshDrives = async () => {
+    setRefreshing(true);
+    setError('');
+    try {
+      // Force refresh from hardware
+      const drives = await invoke<UsbDrive[]>('refresh_usb_drives');
+      setUsbDrives(drives);
+      setSuccess('USB drives refreshed successfully');
+    } catch (err) {
+      setError(`Failed to refresh USB drives: ${err}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
 
   const handleSetTrust = async (driveId: string, trustLevel: string) => {
     try {
-      await invoke('set_drive_trust', { driveId, trustLevel });
+      await setDriveTrust(driveId, trustLevel);
       setUsbDrives(drives => 
         drives.map(drive => 
           drive.id === driveId 
@@ -167,22 +185,28 @@ export const ColdStoragePage = () => {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <HardDrive className="h-8 w-8" />
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <HardDrive className="h-6 w-6" />
             Cold Storage
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-muted-foreground text-sm">
             Air-gapped backup and recovery using encrypted USB drives
           </p>
         </div>
         
-        <Button onClick={detectDrives} disabled={refreshing}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Detecting...' : 'Refresh Drives'}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={detectDrives} disabled={refreshing} variant="outline">
+            <Usb className={`h-4 w-4 mr-2`} />
+            Load Drives
+          </Button>
+          <Button onClick={refreshDrives} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Scanning...' : 'Refresh'}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -212,79 +236,77 @@ export const ColdStoragePage = () => {
                 <p className="text-muted-foreground mb-4">
                   Connect a USB drive to create encrypted backups of your vaults.
                 </p>
-                <Button onClick={detectDrives}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Scan for Drives
-                </Button>
+                <div className="flex gap-2 justify-center">
+                  <Button onClick={detectDrives} variant="outline">
+                    <Usb className="h-4 w-4 mr-2" />
+                    Load Drives
+                  </Button>
+                  <Button onClick={refreshDrives}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Scan Hardware
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {usbDrives.map((drive) => (
                 <Card 
                   key={drive.id} 
                   className="cursor-pointer transition-all hover:shadow-md"
                   onClick={() => navigate(`/cold-storage/drive/${encodeURIComponent(drive.id)}`)}
                 >
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="flex items-center gap-2">
-                          <Usb className="h-4 w-4" />
-                          {drive.label || 'USB Drive'}
-                        </CardTitle>
-                        <CardDescription className="mt-1">
-                          {drive.device_path}
-                        </CardDescription>
-                      </div>
-                      <div className="flex gap-1">
-                        <Badge variant={getTrustBadgeVariant(drive.trust_level)}>
-                          {getTrustIcon(drive.trust_level)}
-                          <span className="ml-1">{drive.trust_level}</span>
-                        </Badge>
-                      </div>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Usb className="h-4 w-4" />
+                        {drive.label || 'USB Drive'}
+                      </CardTitle>
+                      <Badge variant={getTrustBadgeVariant(drive.trust_level)} className="text-xs">
+                        {getTrustIcon(drive.trust_level)}
+                        <span className="ml-1">{drive.trust_level}</span>
+                      </Badge>
                     </div>
+                    <CardDescription className="text-xs truncate">
+                      {drive.device_path}
+                    </CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Capacity:</span>
-                        <span className="font-medium">{formatBytes(drive.capacity)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Available:</span>
-                        <span className="font-medium">{formatBytes(drive.available_space)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Encrypted:</span>
-                        <div className="flex items-center gap-1">
-                          {drive.is_encrypted ? (
-                            <Lock className="h-3 w-3 text-green-500" />
-                          ) : (
-                            <Unlock className="h-3 w-3 text-red-500" />
-                          )}
-                          <span className={drive.is_encrypted ? 'text-green-500' : 'text-red-500'}>
-                            {drive.is_encrypted ? 'Yes' : 'No'}
-                          </span>
+                  <CardContent className="pt-0">
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Size:</span>
+                          <span className="font-medium">{formatBytes(drive.capacity)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Free:</span>
+                          <span className="font-medium">{formatBytes(drive.available_space)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Encrypted:</span>
+                          <div className="flex items-center gap-1">
+                            {drive.is_encrypted ? (
+                              <Lock className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <Unlock className="h-3 w-3 text-red-500" />
+                            )}
+                            <span className={`text-xs ${drive.is_encrypted ? 'text-green-500' : 'text-red-500'}`}>
+                              {drive.is_encrypted ? 'Yes' : 'No'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Backups:</span>
+                          <span className="font-medium">{drive.backup_count}</span>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Mount Point:</span>
-                        <span className="font-medium text-xs">
-                          {drive.mount_point ? drive.mount_point : 'Not mounted'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Backups:</span>
-                        <span className="font-medium">{drive.backup_count}</span>
-                      </div>
                       
-                      <div className="flex items-center gap-2 pt-2">
+                      <div className="flex items-center gap-1 pt-2">
                         <Select
                           value={drive.trust_level.toLowerCase()}
-                          onValueChange={(value) => handleSetTrust(drive.id, value)}
+                          onValueChange={(value: string) => handleSetTrust(drive.id, value)}
                         >
-                          <SelectTrigger className="flex-1">
+                          <SelectTrigger className="h-8 text-xs flex-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -296,24 +318,27 @@ export const ColdStoragePage = () => {
                         
                         <MountButton
                           drive={drive}
-                          onMountSuccess={(mountPoint) => handleMountSuccess(`Drive mounted at ${mountPoint}`)}
+                          userId="admin"
+                          onMountSuccess={(mountPoint) => {
+                            handleMountSuccess(`Drive mounted at ${mountPoint}`);
+                          }}
                           onMountError={handleMountError}
                           onUnmountSuccess={() => {
                             handleMountSuccess('Drive unmounted successfully');
-                            detectDrives();
                           }}
                         />
                         
                         <Button
                           variant="outline"
                           size="sm"
+                          className="h-8 w-8 p-0"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleEjectDrive(drive.id);
                           }}
                           title="Eject Drive"
                         >
-                          <LogOut className="h-4 w-4" />
+                          <LogOut className="h-3 w-3" />
                         </Button>
                       </div>
                     </div>

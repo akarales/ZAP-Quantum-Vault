@@ -221,6 +221,24 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
     .execute(&pool)
     .await?;
     
+    // USB drive trust levels table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS usb_drive_trust (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            drive_id TEXT NOT NULL,
+            device_path TEXT NOT NULL,
+            drive_label TEXT,
+            trust_level TEXT NOT NULL DEFAULT 'untrusted',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+            UNIQUE(user_id, drive_id)
+        )"
+    )
+    .execute(&pool)
+    .await?;
+    
     // Seed database with admin user and test data
     seed_database(&pool).await?;
     

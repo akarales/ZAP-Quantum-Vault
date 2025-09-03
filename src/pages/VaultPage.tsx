@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { safeTauriInvoke } from '../utils/tauri-api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -96,7 +96,7 @@ export default function VaultPage() {
     console.log('🔍 VaultPage: Starting to load vaults...');
     try {
       console.log('🔧 VaultPage: Invoking get_user_vaults_offline command...');
-      const vaultList = await invoke('get_user_vaults_offline') as Vault[];
+      const vaultList = await safeTauriInvoke('get_user_vaults_offline') as Vault[];
       console.log('📦 VaultPage: Raw response from backend:', JSON.stringify(vaultList, null, 2));
       console.log(`📊 VaultPage: Total vaults loaded: ${vaultList ? vaultList.length : 'null/undefined'}`);
       
@@ -125,10 +125,10 @@ export default function VaultPage() {
   const debugDatabase = async () => {
     console.log('🔍 VaultPage: Running database debug...');
     try {
-      const dbState = await invoke('debug_database_state') as string;
+      const dbState = await safeTauriInvoke('debug_database_state') as string;
       console.log('📊 Database State:', dbState);
       
-      const vaultQuery = await invoke('debug_vault_query') as string;
+      const vaultQuery = await safeTauriInvoke('debug_vault_query') as string;
       console.log('📦 Vault Query Result:', vaultQuery);
       
       alert(`Database Debug Results:\n\n${dbState}\n\n${vaultQuery}`);
@@ -143,7 +143,7 @@ export default function VaultPage() {
     setError('');
     
     try {
-      const items = await invoke<VaultItem[]>('get_vault_items_offline', { vaultId });
+      const items = await safeTauriInvoke<VaultItem[]>('get_vault_items_offline', { vaultId });
       setVaultItems(items);
     } catch (err) {
       setError(`Failed to load vault items: ${err}`);
@@ -160,7 +160,7 @@ export default function VaultPage() {
     setSuccess('');
 
     try {
-      await invoke('create_vault_offline', { request: newVault });
+      await safeTauriInvoke('create_vault_offline', { request: newVault });
       setSuccess('Vault created successfully!');
       setShowCreateVault(false);
       setNewVault({
@@ -192,7 +192,7 @@ export default function VaultPage() {
         tags: tagInput ? tagInput.split(',').map(tag => tag.trim()).filter(tag => tag) : []
       };
 
-      await invoke('create_vault_item_offline', { request: itemData });
+      await safeTauriInvoke('create_vault_item_offline', { request: itemData });
       
       setSuccess('Item added to vault successfully!');
       setTagInput('');
@@ -215,7 +215,7 @@ export default function VaultPage() {
       setShowItemData(prev => ({ ...prev, [itemId]: false }));
     } else {
       try {
-        await invoke('decrypt_vault_item_offline', { itemId });
+        await safeTauriInvoke('decrypt_vault_item_offline', { itemId });
         setShowItemData(prev => ({ ...prev, [itemId]: true }));
       } catch (err) {
         setError(`Failed to decrypt item: ${err}`);
@@ -233,7 +233,7 @@ export default function VaultPage() {
     setSuccess('');
 
     try {
-      await invoke('delete_vault_offline', { vaultId });
+      await safeTauriInvoke('delete_vault_offline', { vaultId });
       setSuccess('Vault deleted successfully!');
       
       if (selectedVault?.id === vaultId) {
@@ -259,7 +259,7 @@ export default function VaultPage() {
     setSuccess('');
 
     try {
-      await invoke('delete_vault_item_offline', { itemId });
+      await safeTauriInvoke('delete_vault_item_offline', { itemId });
       setSuccess('Item deleted successfully!');
       
       if (selectedVault) {

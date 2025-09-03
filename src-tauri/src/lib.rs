@@ -4,22 +4,24 @@ mod state;
 mod vault_service;
 mod models;
 mod commands;
-mod vault_commands;
-mod debug_commands;
-mod utils;
-pub mod crypto;
+mod auth_middleware;
+mod bitcoin_commands;
+mod bitcoin_keys_clean;
 mod cold_storage;
 mod cold_storage_commands;
-mod quantum_crypto;
-mod jwt;
-mod jwt_commands;
-mod auth_middleware;
+pub mod crypto;
+mod debug_commands;
+mod encryption;
 mod error_handling;
 mod format_commands;
+mod validation;
+mod jwt;
+mod jwt_commands;
+mod quantum_crypto;
 mod usb_password_commands;
-mod bitcoin_keys_clean;
+mod utils;
+mod vault_commands;
 use bitcoin_keys_clean as bitcoin_keys;
-mod bitcoin_commands;
 mod bitcoin_key_commands;
 
 #[cfg(test)]
@@ -27,14 +29,15 @@ mod tests;
 
 // use crate::commands::{register_user, login_user, get_user_count, get_all_users, update_user_role, toggle_user_status, delete_user, clear_all_users};
 use tauri::Manager;
-use crate::cold_storage_commands::{detect_usb_drives, get_drive_details, set_drive_trust, create_backup, list_backups, eject_drive, generate_recovery_phrase, mount_drive, unmount_drive, mount_encrypted_drive, mount_encrypted_drive_auto};
+use crate::cold_storage_commands::{detect_usb_drives, refresh_usb_drives, get_drive_details, set_drive_trust, create_backup, list_backups, eject_drive, generate_recovery_phrase, mount_drive, unmount_drive, mount_encrypted_drive, mount_encrypted_drive_auto};
 use crate::format_commands::format_and_encrypt_drive;
 use crate::jwt_commands::{refresh_token, logout_user, validate_session, get_token_info};
-use crate::usb_password_commands::{save_usb_drive_password, get_usb_drive_password, get_user_usb_drive_passwords, delete_usb_drive_password, update_usb_drive_password_hint};
+use crate::vault_commands::{decrypt_vault_item_with_password, migrate_vault_item_to_real_encryption, create_vault_item_with_encryption};
+use crate::usb_password_commands::{save_usb_drive_password, get_usb_drive_password, get_user_usb_drive_passwords, update_usb_drive_password_hint, get_all_trusted_drives, delete_trusted_drive};
 use crate::bitcoin_commands::{generate_bitcoin_key, generate_hd_wallet, list_bitcoin_keys, list_hd_wallets, derive_hd_key, export_keys_to_usb, get_key_backup_history, list_receiving_addresses, generate_receiving_address};
 use crate::bitcoin_key_commands::{decrypt_private_key, get_bitcoin_key_details, update_bitcoin_key_metadata, delete_bitcoin_key};
-use crate::commands::{create_vault, get_user_vaults, create_vault_item, get_vault_items, delete_vault, delete_vault_item, decrypt_vault_item, list_user_vaults};
-use crate::vault_commands::{get_user_vaults_offline, create_vault_offline, get_vault_items_offline, create_vault_item_offline, delete_vault_offline, delete_vault_item_offline, decrypt_vault_item_offline};
+// Vault commands temporarily disabled
+// Offline vault commands temporarily disabled
 use crate::logging::init_logger;
 use crate::database::initialize_database_with_app_handle;
 use crate::state::AppState;
@@ -82,6 +85,7 @@ pub fn run() {
             // delete_user,
             // clear_all_users,
             detect_usb_drives,
+            refresh_usb_drives,
             get_drive_details,
             set_drive_trust,
             format_and_encrypt_drive,
@@ -94,9 +98,14 @@ pub fn run() {
             mount_encrypted_drive,
             mount_encrypted_drive_auto,
             save_usb_drive_password,
+            decrypt_vault_item_with_password,
+            migrate_vault_item_to_real_encryption,
+            create_vault_item_with_encryption,
             get_usb_drive_password,
             get_user_usb_drive_passwords,
             update_usb_drive_password_hint,
+            get_all_trusted_drives,
+            delete_trusted_drive,
             refresh_token,
             logout_user,
             validate_session,
@@ -127,6 +136,7 @@ pub fn run() {
             vault_commands::delete_vault_offline,
             vault_commands::delete_vault_item_offline,
             vault_commands::decrypt_vault_item_offline,
+            vault_commands::export_all_vault_data_for_backup,
             debug_commands::debug_database_state,
             debug_commands::debug_vault_query,
             generate_bitcoin_key,

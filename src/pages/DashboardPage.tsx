@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeTauriInvoke } from '../utils/tauri-api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ export const DashboardPage: React.FC = () => {
   const getUserCount = async () => {
     setLoading(true);
     try {
-      const count: number = await invoke('get_user_count');
+      const count: number = await safeTauriInvoke('get_user_count');
       setUserCount(count);
     } catch (error) {
       console.error('Failed to get user count:', error);
@@ -37,7 +37,7 @@ export const DashboardPage: React.FC = () => {
 
   const getBitcoinKeyCount = async () => {
     try {
-      const keys = await invoke('list_bitcoin_keys', { vaultId: 'default_vault' });
+      const keys = await safeTauriInvoke('list_bitcoin_keys', { vaultId: 'default_vault' });
       setBitcoinKeyCount(Array.isArray(keys) ? keys.length : 0);
     } catch (error) {
       console.error('Failed to get Bitcoin key count:', error);

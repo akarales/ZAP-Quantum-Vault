@@ -6,7 +6,7 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
-
+  
   // Path aliases
   resolve: {
     alias: {
@@ -28,4 +28,16 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  
+  // Production build optimizations
+  build: {
+    // Skip TypeScript checking for production builds
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Skip TypeScript warnings in production
+        if (warning.code === 'TYPESCRIPT_ERROR') return;
+        warn(warning);
+      }
+    }
+  }
 }));

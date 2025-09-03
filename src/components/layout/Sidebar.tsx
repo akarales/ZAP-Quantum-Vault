@@ -40,6 +40,7 @@ const navigationItems = [
       { name: 'Key Management', href: '/keys', icon: Key },
       { name: 'Secure Storage', href: '/storage', icon: Database },
       { name: 'Cold Storage', href: '/cold-storage', icon: Snowflake },
+      { name: 'Trusted Drives', href: '/trusted-drives', icon: HardDrive },
       { name: 'Security Center', href: '/security', icon: Shield },
       { name: 'Air Gap Mode', href: '/airgap', icon: HardDrive },
     ]

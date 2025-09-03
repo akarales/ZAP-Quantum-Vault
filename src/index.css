@@ -270,3 +270,35 @@
     letter-spacing: var(--tracking-normal);
   }
 }
+
+/* Compact UI Styles */
+.compact-card {
+  @apply border border-border/50;
+}
+
+.compact-card .card-header {
+  @apply pb-2;
+}
+
+.compact-card .card-content {
+  @apply pt-0;
+}
+
+/* Scrollbar styling */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}

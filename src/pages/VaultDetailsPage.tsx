@@ -52,62 +52,80 @@ const VaultDetailsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
+    console.log('[VaultDetailsPage] useEffect triggered with vaultId:', vaultId);
     if (vaultId) {
       loadVaultDetails();
+    } else {
+      console.warn('[VaultDetailsPage] No vaultId provided');
     }
   }, [vaultId]);
 
   const loadVaultDetails = async () => {
+    console.log('[VaultDetailsPage] Starting loadVaultDetails for vaultId:', vaultId);
     try {
       setLoading(true);
       setError(null);
 
       // Load vault details
+      console.log('[VaultDetailsPage] Loading user vaults...');
       const vaults = await invoke<Vault[]>('get_user_vaults_offline');
+      console.log('[VaultDetailsPage] Loaded vaults:', vaults.length);
+      
       const currentVault = vaults.find((v: Vault) => v.id === vaultId);
+      console.log('[VaultDetailsPage] Found current vault:', currentVault ? 'Yes' : 'No');
       
       if (!currentVault) {
+        console.error('[VaultDetailsPage] Vault not found with ID:', vaultId);
         setError('Vault not found');
         return;
       }
       
       setVault(currentVault);
+      console.log('[VaultDetailsPage] Set vault:', currentVault.name);
 
       // Load vault items
+      console.log('[VaultDetailsPage] Loading vault items...');
       const vaultItems = await invoke<VaultItem[]>('get_vault_items_offline', {
         vaultId: vaultId
       });
+      console.log('[VaultDetailsPage] Loaded vault items:', vaultItems.length);
       
       setItems(vaultItems);
 
       // Load Bitcoin keys for this vault
       try {
+        console.log('[VaultDetailsPage] Loading Bitcoin keys...');
         const keys = await invoke<BitcoinKey[]>('list_bitcoin_keys', {
           vaultId: vaultId
         });
+        console.log('[VaultDetailsPage] Loaded Bitcoin keys:', keys.length);
         setBitcoinKeys(keys);
       } catch (keyError) {
-        console.error('Failed to load Bitcoin keys:', keyError);
+        console.error('[VaultDetailsPage] Failed to load Bitcoin keys:', keyError);
         setBitcoinKeys([]);
       }
     } catch (err) {
-      console.error('Failed to load vault details:', err);
+      console.error('[VaultDetailsPage] Failed to load vault details:', err);
       setError(err as string);
     } finally {
       setLoading(false);
+      console.log('[VaultDetailsPage] Finished loading vault details');
     }
   };
 
   const handleItemClick = (itemId: string) => {
+    console.log('[VaultDetailsPage] Navigating to key details:', itemId);
     navigate(`/key-details/${itemId}`);
   };
 
   const handleCopyToClipboard = async (text: string) => {
+    console.log('[VaultDetailsPage] Copying to clipboard:', text.substring(0, 10) + '...');
     try {
       await navigator.clipboard.writeText(text);
+      console.log('[VaultDetailsPage] Successfully copied to clipboard');
       // TODO: Add toast notification
     } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
+      console.error('[VaultDetailsPage] Failed to copy to clipboard:', err);
     }
   };
 

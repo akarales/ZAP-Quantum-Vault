@@ -1,9 +1,9 @@
 use std::time::Instant;
 use tauri::State;
-use sqlx::{SqlitePool, Row};
+use sqlx::Row;
 use base64::{Engine as _, engine::general_purpose};
 use crate::AppState;
-use crate::bitcoin_keys::{SimpleBitcoinKeyGenerator, BitcoinKeyType, BitcoinNetwork};
+// Bitcoin key types temporarily unused
 use crate::{log_error, log_info, log_bitcoin_event};
 use crate::logging::BitcoinKeyEvent;
 

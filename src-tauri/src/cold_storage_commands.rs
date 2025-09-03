@@ -1,74 +1,326 @@
-use crate::cold_storage::{ColdStorageManager, UsbDrive, BackupRequest, RestoreRequest, BackupMetadata, TrustLevel};
+use crate::cold_storage::{ColdStorageManager, UsbDrive, TrustLevel, BackupRequest, BackupMetadata, RestoreRequest, BackupType};
+use crate::encryption::SecurePassword;
+use crate::validation::InputValidator;
 use crate::state::AppState;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use tauri::State;
+use tokio::sync::RwLock;
 
-// Global cold storage manager
+// Cached drive data with timestamp
+#[derive(Clone)]
+struct CachedDriveData {
+    drives: Vec<UsbDrive>,
+    last_updated: Instant,
+}
+
+// Global cache for USB drives (manual refresh only)
 lazy_static::lazy_static! {
+    static ref DRIVE_CACHE: Arc<RwLock<Option<CachedDriveData>>> = Arc::new(RwLock::new(None));
     static ref COLD_STORAGE: Mutex<ColdStorageManager> = Mutex::new(ColdStorageManager::new());
 }
 
+// No automatic cache expiration - only manual refresh
+
 #[tauri::command]
-pub async fn detect_usb_drives() -> Result<Vec<UsbDrive>, String> {
-    let mut manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
-    manager.detect_usb_drives().map_err(|e| e.to_string())
+pub async fn detect_usb_drives(state: State<'_, AppState>) -> Result<Vec<UsbDrive>, String> {
+    get_cached_drives(state).await
 }
 
 #[tauri::command]
-pub async fn get_drive_details(drive_id: String) -> Result<UsbDrive, String> {
-    let mut manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
-    let drives = manager.detect_usb_drives().map_err(|e| e.to_string())?;
+pub async fn refresh_usb_drives(state: State<'_, AppState>) -> Result<Vec<UsbDrive>, String> {
+    refresh_drive_cache(state).await
+}
+
+// Helper function to get drives with caching (manual refresh only)
+async fn get_cached_drives(state: State<'_, AppState>) -> Result<Vec<UsbDrive>, String> {
+    // Check cache first - return cached data if available
+    {
+        let cache = DRIVE_CACHE.read().await;
+        if let Some(cached_data) = cache.as_ref() {
+            println!(
+                "[CACHE] Returning cached drives (age: {:.1}s)", 
+                cached_data.last_updated.elapsed().as_secs_f32()
+            );
+            return Ok(cached_data.drives.clone());
+        }
+    }
     
-    drives.into_iter()
-        .find(|drive| drive.id == drive_id)
-        .ok_or_else(|| "Drive not found".to_string())
+    // No cache - perform initial scan
+    println!("[CACHE] No cached data, performing initial USB scan");
+    refresh_drive_cache(state).await
+}
+
+// Force refresh the drive cache
+async fn refresh_drive_cache(state: State<'_, AppState>) -> Result<Vec<UsbDrive>, String> {
+    println!("[CACHE] Force refreshing USB drive cache");
+    let mut manager = ColdStorageManager::with_database((*state.db).clone()).await;
+    let drives = manager.detect_usb_drives().await.map_err(|e| e.to_string())?;
+    
+    // Update cache
+    {
+        let mut cache = DRIVE_CACHE.write().await;
+        *cache = Some(CachedDriveData {
+            drives: drives.clone(),
+            last_updated: Instant::now(),
+        });
+    }
+    
+    println!("[CACHE] Cache updated with {} drives", drives.len());
+    Ok(drives)
 }
 
 #[tauri::command]
-pub async fn set_drive_trust(drive_id: String, trust_level: String) -> Result<String, String> {
-    let trust = match trust_level.as_str() {
-        "trusted" => TrustLevel::Trusted,
-        "untrusted" => TrustLevel::Untrusted,
-        "blocked" => TrustLevel::Blocked,
-        _ => return Err("Invalid trust level".to_string()),
+#[allow(non_snake_case)]
+pub async fn get_drive_details(driveId: String, state: State<'_, AppState>) -> Result<UsbDrive, String> {
+    println!("[GET_DRIVE_DETAILS] Starting get_drive_details for driveId: {}", driveId);
+    
+    // Use cached drives instead of rescanning
+    let drives = get_cached_drives(state).await?;
+    println!("[GET_DRIVE_DETAILS] Retrieved {} drives from cache", drives.len());
+    
+    let found_drive = drives.into_iter()
+        .find(|drive| drive.id == driveId);
+        
+    match &found_drive {
+        Some(drive) => {
+            println!("[GET_DRIVE_DETAILS] ✅ Found drive {} with trust_level: {:?}", drive.id, drive.trust_level);
+        }
+        None => {
+            println!("[GET_DRIVE_DETAILS] ❌ Drive {} not found", driveId);
+        }
+    }
+    
+    found_drive.ok_or_else(|| "Drive not found".to_string())
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn set_drive_trust(driveId: String, trustLevel: String, state: State<'_, AppState>) -> Result<String, String> {
+    println!("[TRUST_CMD] Starting set_drive_trust");
+    println!("[TRUST_CMD] Parameters: driveId={}, trustLevel={}", driveId, trustLevel);
+    
+    let trust = match trustLevel.as_str() {
+        "trusted" => {
+            println!("[TRUST_CMD] ✅ Parsed trust level as Trusted");
+            TrustLevel::Trusted
+        },
+        "untrusted" => {
+            println!("[TRUST_CMD] ⚠️ Parsed trust level as Untrusted");
+            TrustLevel::Untrusted
+        },
+        "blocked" => {
+            println!("[TRUST_CMD] 🚫 Parsed trust level as Blocked");
+            TrustLevel::Blocked
+        },
+        _ => {
+            println!("[TRUST_CMD] ❌ Invalid trust level: {}", trustLevel);
+            return Err("Invalid trust level".to_string());
+        }
     };
 
-    let mut manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
-    manager.set_drive_trust(&drive_id, trust).map_err(|e| e.to_string())?;
+    // Create a new manager with database access for this operation
+    println!("[TRUST_CMD] Creating ColdStorageManager with database access");
+    let mut manager = ColdStorageManager::with_database((*state.db).clone()).await;
     
-    Ok("Trust level updated successfully".to_string())
+    // First detect drives to populate the manager
+    println!("[TRUST_CMD] Detecting USB drives to populate manager");
+    match manager.detect_usb_drives().await {
+        Ok(drives) => {
+            println!("[MOUNT_CMD] Found {} drives", drives.len());
+            for drive in &drives {
+                let is_mounted = drive.mount_point.is_some();
+                println!("[MOUNT_CMD] Drive: {} - Mounted: {}", drive.id, is_mounted);
+            }
+        }
+        Err(e) => {
+            println!("[MOUNT_CMD] Error detecting drives: {}", e);
+            return Err(e.to_string());
+        }
+    }
+    
+    // Set trust level with database persistence
+    println!("[TRUST_CMD] Setting trust level for drive {} to {:?}", driveId, trust);
+    match manager.set_drive_trust(&driveId, trust).await {
+        Ok(_) => {
+            println!("[TRUST_CMD] ✅ Successfully set trust level for drive {}", driveId);
+            Ok("Trust level updated successfully".to_string())
+        },
+        Err(e) => {
+            println!("[TRUST_CMD] ❌ Failed to set trust level: {}", e);
+            eprintln!("[TRUST_CMD] Trust level error details: {}", e);
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
-pub async fn create_backup(request: BackupRequest) -> Result<String, String> {
-    let mut manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
-    manager.create_backup(&request.drive_id, &[], "", "").map_err(|e| e.to_string())
+pub async fn create_backup(
+    drive_id: String,
+    backup_type: String,
+    vault_ids: Option<Vec<String>>,
+    compression_level: Option<u8>,
+    verification: Option<bool>,
+    password: String,
+    state: State<'_, AppState>
+) -> Result<String, String> {
+    println!("[BACKUP_CMD] ==================== BACKUP START ====================");
+    println!("[BACKUP_CMD] Starting vault backup to USB drive");
+    println!("[BACKUP_CMD] Parameters: drive_id={}, backup_type={}", drive_id, backup_type);
+    println!("[BACKUP_CMD] Vault IDs: {:?}", vault_ids);
+    println!("[BACKUP_CMD] Compression level: {:?}", compression_level);
+    println!("[BACKUP_CMD] Verification: {:?}", verification);
+    println!("[BACKUP_CMD] Password provided: {}", !password.is_empty());
+    
+    // Create BackupRequest from individual parameters
+    let request = BackupRequest {
+        drive_id: drive_id.clone(),
+        backup_type: match backup_type.as_str() {
+            "Full" => BackupType::Full,
+            _ => BackupType::Full, // Default to Full
+        },
+        vault_ids,
+        compression_level: compression_level.unwrap_or(5),
+        verification: verification.unwrap_or(true),
+        password: password.clone(),
+    };
+    
+    // Create manager with database access for backup operations
+    println!("[BACKUP_CMD] Creating ColdStorageManager with database access");
+    let mut manager = ColdStorageManager::with_database((*state.db).clone()).await;
+    println!("[BACKUP_CMD] ✅ ColdStorageManager created successfully");
+    
+    // Detect drives to populate the manager
+    println!("[BACKUP_CMD] Detecting USB drives to populate manager...");
+    let detected_drives = manager.detect_usb_drives().await.map_err(|e| {
+        println!("[BACKUP_CMD] ❌ Failed to detect drives: {}", e);
+        e.to_string()
+    })?;
+    println!("[BACKUP_CMD] ✅ Detected {} drives", detected_drives.len());
+    
+    // Log all detected drives
+    for drive in &detected_drives {
+        println!("[BACKUP_CMD] Drive found: {} - {} - Mounted: {} - Trust: {:?}", 
+                 drive.id, drive.device_path, drive.mount_point.is_some(), drive.trust_level);
+    }
+    
+    // Check if target drive exists
+    let target_drive = detected_drives.iter().find(|d| d.id == request.drive_id);
+    match target_drive {
+        Some(drive) => {
+            println!("[BACKUP_CMD] ✅ Target drive found: {} ({})", drive.id, drive.device_path);
+            println!("[BACKUP_CMD] Drive details: mounted={}, trust={:?}, capacity={} bytes", 
+                     drive.mount_point.is_some(), drive.trust_level, drive.capacity);
+        },
+        None => {
+            println!("[BACKUP_CMD] ❌ Target drive '{}' not found in detected drives", request.drive_id);
+            return Err(format!("Target drive '{}' not found", request.drive_id));
+        }
+    }
+    
+    // Get actual vault data from the application state
+    println!("[BACKUP_CMD] Retrieving actual vault data from database...");
+    let vault_export_data = crate::vault_commands::export_all_vault_data_for_backup(state.clone()).await.map_err(|e| {
+        println!("[BACKUP_CMD] ❌ Failed to export vault data: {}", e);
+        format!("Failed to export vault data: {}", e)
+    })?;
+    
+    println!("[BACKUP_CMD] ✅ Retrieved vault data: {} vaults, {} items", 
+             vault_export_data.total_vaults, vault_export_data.total_items);
+    
+    // Serialize the actual vault data for backup
+    println!("[BACKUP_CMD] Serializing vault data for backup...");
+    let vault_data = serde_json::to_vec(&vault_export_data).map_err(|e| {
+        println!("[BACKUP_CMD] ❌ Failed to serialize vault data: {}", e);
+        format!("Failed to serialize vault data: {}", e)
+    })?;
+    
+    println!("[BACKUP_CMD] ✅ Vault data serialized successfully ({} bytes)", vault_data.len());
+    
+    // Generate a recovery phrase for this backup
+    println!("[BACKUP_CMD] Generating recovery phrase for backup...");
+    let recovery_phrase = crate::cold_storage::generate_recovery_phrase()
+        .map_err(|e| {
+            println!("[BACKUP_CMD] ❌ Failed to generate recovery phrase: {}", e);
+            format!("Failed to generate recovery phrase: {}", e)
+        })?;
+    
+    println!("[BACKUP_CMD] ✅ Recovery phrase generated successfully");
+    
+    // Validate drive ID
+    let validated_drive_id = InputValidator::validate_drive_id(&drive_id)
+        .map_err(|e| format!("Invalid drive ID: {}", e))?;
+    
+    // Password is now REQUIRED - validate it
+    let secure_password = SecurePassword::new(password.clone())
+        .map_err(|e| format!("Invalid password: {}", e))?;
+    
+    println!("[BACKUP_CMD] ✅ Password validation successful");
+    
+    println!("[BACKUP_CMD] Creating encrypted backup on drive {}...", validated_drive_id);
+    println!("[BACKUP_CMD] Backup data size: {} bytes", vault_data.len());
+    println!("[BACKUP_CMD] Recovery phrase length: {} characters", recovery_phrase.len());
+    
+    match manager.create_backup(&validated_drive_id, &vault_data, &recovery_phrase, secure_password.expose_secret()) {
+        Ok(result) => {
+            println!("[BACKUP_CMD] ✅ Vault backup created successfully: {}", result);
+            println!("[BACKUP_CMD] Backup ID: {}", result);
+            
+            // Clear cache after backup creation
+            {
+                let mut cache = DRIVE_CACHE.write().await;
+                *cache = None;
+                println!("[BACKUP_CMD] ✅ Drive cache cleared after backup creation");
+            }
+            
+            println!("[BACKUP_CMD] ==================== BACKUP SUCCESS ====================");
+            Ok(result)
+        },
+        Err(e) => {
+            println!("[BACKUP_CMD] ❌ Failed to create vault backup: {}", e);
+            println!("[BACKUP_CMD] Error details: {:?}", e);
+            println!("[BACKUP_CMD] ==================== BACKUP FAILED ====================");
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
-pub async fn list_backups(drive_id: String) -> Result<Vec<BackupMetadata>, String> {
-    let manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
+pub async fn list_backups(drive_id: String, state: State<'_, AppState>) -> Result<Vec<BackupMetadata>, String> {
+    let mut manager = ColdStorageManager::with_database((*state.db).clone()).await;
+    manager.detect_usb_drives().await.map_err(|e| e.to_string())?;
     manager.list_backups(&drive_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn verify_backup(backup_id: String) -> Result<bool, String> {
-    let manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
+pub async fn verify_backup(backup_id: String, state: State<'_, AppState>) -> Result<bool, String> {
+    let mut manager = ColdStorageManager::with_database((*state.db).clone()).await;
+    manager.detect_usb_drives().await.map_err(|e| e.to_string())?;
     manager.verify_backup(&backup_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn restore_backup(request: RestoreRequest) -> Result<String, String> {
-    let manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
+pub async fn restore_backup(request: RestoreRequest, state: State<'_, AppState>) -> Result<String, String> {
+    let mut manager = ColdStorageManager::with_database((*state.db).clone()).await;
+    manager.detect_usb_drives().await.map_err(|e| e.to_string())?;
     manager.restore_backup(request).map_err(|e| e.to_string())?;
     Ok("Backup restored successfully".to_string())
 }
 
 
 #[tauri::command]
-pub async fn eject_drive(drive_id: String) -> Result<String, String> {
-    let manager = COLD_STORAGE.lock().map_err(|e| e.to_string())?;
+pub async fn eject_drive(drive_id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let mut manager = ColdStorageManager::with_database((*state.db).clone()).await;
+    manager.detect_usb_drives().await.map_err(|e| e.to_string())?;
     manager.eject_drive(&drive_id).map_err(|e| e.to_string())?;
+    
+    // Clear cache after ejecting
+    {
+        let mut cache = DRIVE_CACHE.write().await;
+        *cache = None;
+    }
+    
     Ok("Drive ejected safely".to_string())
 }
 

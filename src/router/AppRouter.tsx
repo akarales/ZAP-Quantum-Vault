@@ -13,7 +13,8 @@ import VaultPage from '@/pages/VaultPage';
 import VaultDetailsPage from '@/pages/VaultDetailsPage';
 import KeyDetailsPage from '@/pages/KeyDetailsPage';
 import { ColdStoragePage } from '@/pages/ColdStoragePage';
-import UsbDriveDetailPage from '@/pages/UsbDriveDetailPage';
+import UsbDriveDetailPage from '../pages/UsbDriveDetailPage';
+import TrustedDrivesPage from '../pages/TrustedDrivesPage';
 import { ThemeDemo } from '@/pages/ThemeDemo';
 import { MainLayout } from '@/components/layout/MainLayout';
 
@@ -116,6 +117,12 @@ export const AppRouter: React.FC = () => {
         <Route path="/cold-storage/drive/:driveId" element={
           <ProtectedRoute>
             <UsbDriveDetailPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/trusted-drives" element={
+          <ProtectedRoute>
+            <TrustedDrivesPage />
           </ProtectedRoute>
         } />
         

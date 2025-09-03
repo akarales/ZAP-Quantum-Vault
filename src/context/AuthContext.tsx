@@ -43,11 +43,15 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  console.log('[AuthContext] AuthProvider initialized');
+  
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const isAuthenticated = !!user && !!token;
+  
+  console.log('[AuthContext] Current state - user:', user?.id, 'token:', token ? 'Present' : 'None', 'loading:', loading, 'authenticated:', isAuthenticated);
 
   useEffect(() => {
     // Check for existing session on app start
@@ -68,44 +72,65 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = async (username: string, password: string): Promise<void> => {
+    console.log('[AuthContext] Login attempt for username:', username);
+    
     try {
-      const response: AuthResponse = await invoke('login_user', {
-        request: { username, password }
+      const response = await invoke<AuthResponse>('authenticate_user', {
+        username,
+        password
       });
+      
+      console.log('[AuthContext] Login successful for user:', response.user.id);
       
       setUser(response.user);
       setToken(response.token);
       
-      // Persist to localStorage
-      localStorage.setItem('zap_vault_user', JSON.stringify(response.user));
-      localStorage.setItem('zap_vault_token', response.token);
+      // Store in localStorage for persistence
+      localStorage.setItem('auth_token', response.token);
+      localStorage.setItem('user_data', JSON.stringify(response.user));
+      
+      console.log('[AuthContext] User data stored in localStorage');
     } catch (error) {
-      throw new Error(`Login failed: ${error}`);
+      console.error('[AuthContext] Login failed:', error);
+      throw error;
     }
   };
 
   const register = async (username: string, email: string, password: string): Promise<void> => {
+    console.log('[AuthContext] Registration attempt for username:', username, 'email:', email);
+    
     try {
-      const response: AuthResponse = await invoke('register_user', {
-        request: { username, email, password }
+      const response = await invoke<AuthResponse>('register_user', {
+        username,
+        email,
+        password
       });
+      
+      console.log('[AuthContext] Registration successful for user:', response.user.id);
       
       setUser(response.user);
       setToken(response.token);
       
-      // Persist to localStorage
-      localStorage.setItem('zap_vault_user', JSON.stringify(response.user));
-      localStorage.setItem('zap_vault_token', response.token);
+      // Store in localStorage for persistence
+      localStorage.setItem('auth_token', response.token);
+      localStorage.setItem('user_data', JSON.stringify(response.user));
+      
+      console.log('[AuthContext] User data stored in localStorage after registration');
     } catch (error) {
-      throw new Error(`Registration failed: ${error}`);
+      console.error('[AuthContext] Registration failed:', error);
+      throw error;
     }
   };
 
   const logout = () => {
+    console.log('[AuthContext] Logout initiated');
+    
     setUser(null);
     setToken(null);
-    localStorage.removeItem('zap_vault_user');
-    localStorage.removeItem('zap_vault_token');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_data');
+    
+    console.log('[AuthContext] Logout completed - user data cleared');
   };
 
   const value: AuthContextType = {

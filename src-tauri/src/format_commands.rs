@@ -1,15 +1,23 @@
-use tauri::{Emitter, AppHandle};
+use tauri::{Emitter, AppHandle, State};
 use std::process::Command;
 use std::os::unix::process::ExitStatusExt;
 use log::{info, debug};
+use crate::AppState;
+use crate::usb_password_commands::{SavePasswordRequest, save_usb_drive_password};
+use crate::cold_storage_commands::set_drive_trust;
 
 #[tauri::command]
 pub async fn format_and_encrypt_drive(
     app: AppHandle,
+    state: State<'_, AppState>,
+    user_id: String,
     drive_id: String,
     password: String,
     drive_name: Option<String>,
 ) -> Result<String, String> {
+    println!("[FORMAT_CMD] Starting format_and_encrypt_drive");
+    println!("[FORMAT_CMD] Parameters: user_id={}, drive_id={}, drive_name={:?}", user_id, drive_id, drive_name);
+    println!("[FORMAT_CMD] Password length: {}", password.len());
     info!("Starting format_and_encrypt_drive for drive_id: {}", drive_id);
     debug!("Drive name: {:?}", drive_name);
     
@@ -262,7 +270,7 @@ pub async fn format_and_encrypt_drive(
     // Step 6: Setup LUKS encryption
     emit_progress("encrypting", 60, "Setting up LUKS encryption...");
     
-    let label = drive_name.unwrap_or_else(|| "ZAP_VAULT".to_string());
+    let label = drive_name.as_ref().map(|s| s.clone()).unwrap_or_else(|| "ZAP_VAULT".to_string());
     // Sanitize the name for device mapper - remove spaces and special characters
     let sanitized_name = label
         .chars()
@@ -453,8 +461,45 @@ pub async fn format_and_encrypt_drive(
             
             match mount_result {
                 Ok(mount_output) if mount_output.status.success() => {
-                    emit_progress("complete", 100, "Encrypted drive formatted and mounted successfully!");
+                    emit_progress("complete", 95, "Drive formatted successfully, setting up trust and password...");
                     println!("Encrypted drive formatting and mounting completed successfully at {}", mount_point);
+                    
+                    // Auto-set trust level to "trusted" after successful formatting
+                    println!("[FORMAT_CMD] Attempting to set trust level for drive: {}", drive_id);
+                    match set_drive_trust(drive_id.clone(), "trusted".to_string(), state.clone()).await {
+                        Ok(_) => {
+                            println!("[FORMAT_CMD] ✅ Successfully set drive {} as trusted", drive_id);
+                        },
+                        Err(e) => {
+                            println!("[FORMAT_CMD] ❌ Failed to set drive trust level: {}", e);
+                            eprintln!("[FORMAT_CMD] Trust level error details: {}", e);
+                        }
+                    }
+                    
+                    // Auto-save password after successful formatting
+                    println!("[FORMAT_CMD] Attempting to save password for drive: {}", drive_id);
+                    let password_request = SavePasswordRequest {
+                        drive_id: drive_id.clone(),
+                        device_path: device_path.clone(),
+                        drive_label: drive_name.clone(),
+                        password: password.clone(),
+                        password_hint: None,
+                    };
+                    
+                    println!("[FORMAT_CMD] Password request: drive_id={}, device_path={}, drive_label={:?}", 
+                             password_request.drive_id, password_request.device_path, password_request.drive_label);
+                    
+                    match save_usb_drive_password(state.clone(), user_id.clone(), password_request).await {
+                        Ok(result) => {
+                            println!("[FORMAT_CMD] ✅ Successfully saved password for drive {}: {}", drive_id, result);
+                        },
+                        Err(e) => {
+                            println!("[FORMAT_CMD] ❌ Failed to save drive password: {}", e);
+                            eprintln!("[FORMAT_CMD] Password save error details: {}", e);
+                        }
+                    }
+                    
+                    emit_progress("complete", 100, "Encrypted drive formatted and mounted successfully!");
                     Ok(format!("Encrypted drive formatted and mounted at {}", mount_point))
                 },
                 Ok(mount_output) => {
@@ -514,8 +559,34 @@ pub async fn format_and_encrypt_drive(
         
         match mount_result {
             Ok(mount_output) if mount_output.status.success() => {
-                emit_progress("complete", 100, "Encrypted drive formatted and mounted successfully!");
+                emit_progress("complete", 95, "Drive formatted successfully, setting up trust and password...");
                 println!("Encrypted drive formatting and mounting completed successfully at {}", mount_point);
+                
+                // Auto-set trust level to "trusted" after successful formatting
+                if let Err(e) = set_drive_trust(drive_id.clone(), "trusted".to_string(), state.clone()).await {
+                    println!("Warning: Failed to set drive trust level: {}", e);
+                } else {
+                    println!("Successfully set drive {} as trusted", drive_id);
+                }
+                
+                // Auto-save password after successful formatting
+                let password_request = SavePasswordRequest {
+                    drive_id: drive_id.clone(),
+                    device_path: device_path.clone(),
+                    drive_label: drive_name.clone(),
+                    password: password.clone(),
+                    password_hint: None,
+                };
+                
+                // Use the user_id passed from frontend
+                
+                if let Err(e) = save_usb_drive_password(state.clone(), user_id, password_request).await {
+                    println!("Warning: Failed to save drive password: {}", e);
+                } else {
+                    println!("Successfully saved password for drive {}", drive_id);
+                }
+                
+                emit_progress("complete", 100, "Encrypted drive formatted and mounted successfully!");
                 Ok(format!("Encrypted drive formatted and mounted at {}", mount_point))
             },
             _ => {
