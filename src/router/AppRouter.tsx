@@ -7,6 +7,9 @@ import { BitcoinKeysPage } from '@/pages/BitcoinKeysPage';
 import { BitcoinKeyDetailsPage } from '@/pages/BitcoinKeyDetailsPage';
 import { EthereumKeysPage } from '@/pages/EthereumKeysPage';
 import { EthereumKeyDetailsPage } from '@/pages/EthereumKeyDetailsPage';
+import { CosmosKeysPage } from '@/pages/CosmosKeysPage';
+import { CosmosKeyDetailsPage } from '@/pages/CosmosKeyDetailsPage';
+import { ZAPKeysPage } from '@/pages/ZAPKeysPage';
 import { SecurityCenterPage } from '@/pages/SecurityCenterPage';
 import { UserManagementPage } from '@/pages/UserManagementPage';
 import { AdminResetPage } from '@/pages/AdminResetPage';
@@ -202,6 +205,33 @@ export const AppRouter: React.FC = () => {
           <ProtectedRoute>
             <div className="p-6">
               <h1 className="text-2xl font-bold">Networks</h1>
+              <p className="text-muted-foreground">Coming soon...</p>
+            </div>
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/cosmos-keys" element={
+          <ProtectedRoute>
+            <CosmosKeysPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/cosmos-keys/:keyId" element={
+          <ProtectedRoute>
+            <CosmosKeyDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-keys" element={
+          <ProtectedRoute>
+            <ZAPKeysPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/blockchain/cosmos" element={
+          <ProtectedRoute>
+            <div className="p-6">
+              <h1 className="text-2xl font-bold">Cosmos</h1>
               <p className="text-muted-foreground">Coming soon...</p>
             </div>
           </ProtectedRoute>

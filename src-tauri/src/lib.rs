@@ -9,6 +9,8 @@ mod bitcoin_commands;
 mod bitcoin_keys_clean;
 mod ethereum_commands;
 mod ethereum_keys;
+mod cosmos_keys;
+mod cosmos_commands;
 mod cold_storage;
 mod cold_storage_commands;
 pub mod crypto;
@@ -36,6 +38,11 @@ use crate::vault_commands::{decrypt_vault_item_with_password, migrate_vault_item
 use crate::usb_password_commands::{save_usb_drive_password, get_usb_drive_password, get_user_usb_drive_passwords, update_usb_drive_password_hint, get_all_trusted_drives, delete_trusted_drive};
 use crate::bitcoin_commands::{generate_bitcoin_key, generate_hd_wallet, list_bitcoin_keys, list_hd_wallets, derive_hd_key, export_keys_to_usb, get_key_backup_history, list_receiving_addresses, generate_receiving_address, list_trashed_bitcoin_keys, restore_bitcoin_key, hard_delete_bitcoin_key, decrypt_private_key, get_bitcoin_key_details, delete_bitcoin_key, update_bitcoin_key_metadata};
 use crate::ethereum_commands::{generate_ethereum_key, list_ethereum_keys, decrypt_ethereum_private_key, update_ethereum_key_metadata, trash_ethereum_key, restore_ethereum_key, get_ethereum_network_info, export_ethereum_keys_to_usb, get_ethereum_key_details};
+use crate::cosmos_commands::{
+    generate_cosmos_key, list_cosmos_keys, get_cosmos_key_by_id, decrypt_cosmos_key, 
+    decrypt_cosmos_private_key, export_cosmos_key, trash_cosmos_key, restore_cosmos_key, 
+    list_trashed_cosmos_keys, delete_cosmos_key_permanently
+};
 // Vault commands temporarily disabled
 // Offline vault commands temporarily disabled
 use crate::logging::init_logger;
@@ -162,6 +169,16 @@ pub fn run() {
             restore_ethereum_key,
             get_ethereum_network_info,
             export_ethereum_keys_to_usb,
+            generate_cosmos_key,
+            list_cosmos_keys,
+            decrypt_cosmos_key,
+            decrypt_cosmos_private_key,
+            get_cosmos_key_by_id,
+            export_cosmos_key,
+            trash_cosmos_key,
+            restore_cosmos_key,
+            list_trashed_cosmos_keys,
+            delete_cosmos_key_permanently,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

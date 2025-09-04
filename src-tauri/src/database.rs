@@ -335,6 +335,74 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
     .execute(&pool)
     .await?;
     
+    // Cosmos keys table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cosmos_keys (
+            id TEXT PRIMARY KEY,
+            vault_id TEXT NOT NULL,
+            network_name TEXT NOT NULL,
+            bech32_prefix TEXT NOT NULL,
+            address TEXT NOT NULL UNIQUE,
+            encrypted_private_key BLOB NOT NULL,
+            public_key BLOB NOT NULL,
+            derivation_path TEXT,
+            description TEXT,
+            entropy_source TEXT NOT NULL DEFAULT 'system',
+            encryption_password TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            quantum_enhanced BOOLEAN DEFAULT TRUE,
+            is_active BOOLEAN DEFAULT TRUE,
+            FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // Migration: Add entropy_source column to cosmos_keys if it doesn't exist
+    let _ = sqlx::query("ALTER TABLE cosmos_keys ADD COLUMN entropy_source TEXT NOT NULL DEFAULT 'system'")
+        .execute(&pool)
+        .await; // Ignore errors if column already exists
+
+    // Migration: Add encryption_password column to cosmos_keys if it doesn't exist
+    let _ = sqlx::query("ALTER TABLE cosmos_keys ADD COLUMN encryption_password TEXT")
+        .execute(&pool)
+        .await; // Ignore errors if column already exists
+
+    // Cosmos networks configuration table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cosmos_networks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            coin_type INTEGER NOT NULL,
+            bech32_prefix TEXT NOT NULL,
+            chain_id TEXT NOT NULL,
+            rpc_endpoint TEXT,
+            enabled BOOLEAN DEFAULT TRUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // Insert default Cosmos networks if they don't exist
+    let network_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cosmos_networks")
+        .fetch_one(&pool)
+        .await?;
+
+    if network_count == 0 {
+        sqlx::query(
+            "INSERT INTO cosmos_networks (name, coin_type, bech32_prefix, chain_id, rpc_endpoint) VALUES
+            ('Cosmos Hub', 118, 'cosmos', 'cosmoshub-4', 'https://cosmos-rpc.polkachu.com'),
+            ('Osmosis', 118, 'osmo', 'osmosis-1', 'https://osmosis-rpc.polkachu.com'),
+            ('Juno', 118, 'juno', 'juno-1', 'https://juno-rpc.polkachu.com'),
+            ('Stargaze', 118, 'stars', 'stargaze-1', 'https://stargaze-rpc.polkachu.com'),
+            ('Akash', 118, 'akash', 'akashnet-2', 'https://akash-rpc.polkachu.com')"
+        )
+        .execute(&pool)
+        .await?;
+    }
+
     // Seed database with admin user and test data
     seed_database(&pool).await?;
     

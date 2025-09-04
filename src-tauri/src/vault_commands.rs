@@ -396,7 +396,7 @@ pub async fn decrypt_vault_item_offline(
     let encryption_salt: Option<String> = row.get("encryption_salt");
     
     match (encryption_version, encrypted_data_v2, encryption_salt) {
-        (Some(2), Some(encrypted_v2), Some(salt_b64)) => {
+        (Some(2), Some(_encrypted_v2), Some(_salt_b64)) => {
             // New AES-256-GCM encrypted data - requires password
             return Err("Real encryption requires user password. Use decrypt_vault_item_with_password instead.".to_string());
         },
@@ -440,9 +440,9 @@ pub async fn decrypt_vault_item_with_password(
     let legacy_data: String = row.get("encrypted_data");
     
     match (encryption_version, encrypted_data_v2, encryption_salt) {
-        (Some(2), Some(encrypted_v2), Some(salt_b64)) => {
+        (Some(2), Some(_encrypted_v2), Some(_salt_b64)) => {
             // Decrypt with real AES-256-GCM encryption
-            let salt = general_purpose::STANDARD.decode(&salt_b64)
+            let salt = general_purpose::STANDARD.decode(&_salt_b64)
                 .map_err(|e| format!("Invalid salt format: {}", e))?;
             
             if salt.len() != 32 {
@@ -455,7 +455,7 @@ pub async fn decrypt_vault_item_with_password(
             let encryption = VaultEncryption::from_salt(&secure_password, salt_array)
                 .map_err(|e| format!("Failed to create encryption: {}", e))?;
             
-            let encrypted_data: EncryptedData = serde_json::from_str(&encrypted_v2)
+            let encrypted_data: EncryptedData = serde_json::from_str(&_encrypted_v2)
                 .map_err(|e| format!("Invalid encrypted data format: {}", e))?;
             
             let decrypted = encryption.decrypt(&encrypted_data)

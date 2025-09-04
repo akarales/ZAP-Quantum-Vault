@@ -941,6 +941,120 @@ impl ColdStorageManager {
         })?;
         println!("[BACKUP_CORE] ✅ Ethereum keys written to: {}", ethereum_keys_file.display());
         
+        // Extract and save Cosmos keys from database
+        println!("[BACKUP_CORE] Extracting Cosmos keys from database...");
+        let cosmos_keys_file = backup_dir.join("keys").join("cosmos_keys.json");
+        
+        // Query Cosmos keys directly from database
+        let mut cosmos_keys = Vec::new();
+        let cosmos_query_result = if let Some(ref db_pool) = self.db_pool {
+            sqlx::query(
+                "SELECT id, vault_id, network_name, bech32_prefix, address, public_key, encrypted_private_key, derivation_path, description, quantum_enhanced, created_at, updated_at, is_active, COALESCE(entropy_source, 'system') as entropy_source, encryption_password FROM cosmos_keys WHERE is_active = 1"
+            ).fetch_all(db_pool).await
+        } else {
+            println!("[BACKUP_CORE] ⚠️ No database connection available for Cosmos keys");
+            Err(sqlx::Error::Configuration("No database connection".into()))
+        };
+        
+        match cosmos_query_result {
+            Ok(rows) => {
+                for row in rows {
+                    let key_id: String = row.get("id");
+                    let vault_id: String = row.get("vault_id");
+                    let network_name: String = row.get("network_name");
+                    let bech32_prefix: String = row.get("bech32_prefix");
+                    let address: String = row.get("address");
+                    let public_key: Vec<u8> = row.get("public_key");
+                    let encrypted_private_key: Vec<u8> = row.get("encrypted_private_key");
+                    let derivation_path: Option<String> = row.get("derivation_path");
+                    let description: Option<String> = row.get("description");
+                    let quantum_enhanced: bool = row.get("quantum_enhanced");
+                    let created_at: String = row.get("created_at");
+                    let updated_at: String = row.get("updated_at");
+                    let entropy_source: String = row.get("entropy_source");
+                    let encryption_password: Option<String> = row.get("encryption_password");
+                    
+                    // Try to decrypt the private key using the decrypt function from cosmos_commands
+                    let decryption_result = if let Some(ref password) = encryption_password {
+                        // Convert encrypted_private_key bytes to base64 string for decryption
+                        let encrypted_key_b64 = general_purpose::STANDARD.encode(&encrypted_private_key);
+                        crate::cosmos_commands::decrypt_private_key(&encrypted_key_b64, password)
+                            .map_err(|e| anyhow::anyhow!("Decryption failed: {}", e))
+                    } else {
+                        Err(anyhow::anyhow!("No encryption password available"))
+                    };
+                    
+                    match decryption_result {
+                        Ok(decrypted_private_key_hex) => {
+                            let private_key_hex = decrypted_private_key_hex;
+                            // Convert public key bytes to string - it's already hex encoded in the database
+                            let public_key_hex = String::from_utf8_lossy(&public_key).to_string();
+                            
+                            cosmos_keys.push(serde_json::json!({
+                                "id": key_id,
+                                "vault_id": vault_id,
+                                "network_name": network_name,
+                                "bech32_prefix": bech32_prefix,
+                                "address": address,
+                                "private_key": private_key_hex,
+                                "public_key": public_key_hex,
+                                "derivation_path": derivation_path,
+                                "description": description,
+                                "quantum_enhanced": quantum_enhanced,
+                                "entropy_source": entropy_source,
+                                "created_at": created_at,
+                                "updated_at": updated_at,
+                                "backup_timestamp": chrono::Utc::now().to_rfc3339(),
+                                "backup_format": "plaintext",
+                                "note": "Decrypted successfully for backup"
+                            }));
+                            
+                            println!("[BACKUP_CORE] ✅ Decrypted Cosmos key: {}", key_id);
+                        },
+                        Err(e) => {
+                            println!("[BACKUP_CORE] ⚠️ Failed to decrypt Cosmos key {}: {}", key_id, e);
+                            // Save encrypted version with warning
+                            cosmos_keys.push(serde_json::json!({
+                                "id": key_id,
+                                "vault_id": vault_id,
+                                "network_name": network_name,
+                                "bech32_prefix": bech32_prefix,
+                                "address": address,
+                                "encrypted_private_key": general_purpose::STANDARD.encode(&encrypted_private_key),
+                                "public_key": general_purpose::STANDARD.encode(&public_key),
+                                "derivation_path": derivation_path,
+                                "description": description,
+                                "quantum_enhanced": quantum_enhanced,
+                                "entropy_source": entropy_source,
+                                "created_at": created_at,
+                                "updated_at": updated_at,
+                                "encryption_password": encryption_password,
+                                "error": format!("Failed to decrypt: {}", e),
+                                "note": "Could not decrypt - check encryption password"
+                            }));
+                        }
+                    }
+                }
+                println!("[BACKUP_CORE] ✅ Processed {} Cosmos keys", cosmos_keys.len());
+            },
+            Err(e) => {
+                println!("[BACKUP_CORE] ⚠️ Failed to query Cosmos keys from database: {}", e);
+                // Continue with empty cosmos_keys array
+            }
+        }
+        
+        // Write Cosmos keys as JSON
+        let cosmos_keys_json = serde_json::to_string_pretty(&cosmos_keys).map_err(|e| {
+            println!("[BACKUP_CORE] ❌ Failed to serialize Cosmos keys: {}", e);
+            anyhow!("Failed to serialize Cosmos keys: {}", e)
+        })?;
+        
+        std::fs::write(&cosmos_keys_file, cosmos_keys_json).map_err(|e| {
+            println!("[BACKUP_CORE] ❌ Failed to write Cosmos keys file: {}", e);
+            anyhow!("Failed to write Cosmos keys file: {}", e)
+        })?;
+        println!("[BACKUP_CORE] ✅ Cosmos keys written to: {}", cosmos_keys_file.display());
+        
         // No recovery phrase needed - USB drive encryption provides security
         println!("[BACKUP_CORE] Skipping recovery phrase (not needed for backups)");
         

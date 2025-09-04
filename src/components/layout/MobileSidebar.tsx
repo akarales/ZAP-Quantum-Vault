@@ -39,8 +39,11 @@ const navigationItems = [
     items: [
       { name: 'Bitcoin Keys', href: '/bitcoin-keys', icon: Bitcoin },
       { name: 'Ethereum Keys', href: '/ethereum-keys', icon: Key },
+      { name: 'Cosmos Keys', href: '/cosmos-keys', icon: Zap },
+      { name: 'ZAP Keys', href: '/zap-keys', icon: Zap },
       { name: 'Secure Storage', href: '/storage', icon: Database },
       { name: 'Cold Storage', href: '/cold-storage', icon: Snowflake },
+      { name: 'Trusted Drives', href: '/trusted-drives', icon: HardDrive },
       { name: 'Security Center', href: '/security', icon: Shield },
       { name: 'Air Gap Mode', href: '/airgap', icon: HardDrive },
     ]
@@ -51,7 +54,6 @@ const navigationItems = [
       { name: 'Quantum Safe', href: '/quantum', icon: Atom },
       { name: 'Transactions', href: '/blockchain/transactions', icon: Zap },
       { name: 'Networks', href: '/blockchain/networks', icon: Network },
-      { name: 'ZAP Chain', href: '/blockchain/zap-chain', icon: Zap },
     ]
   },
   {

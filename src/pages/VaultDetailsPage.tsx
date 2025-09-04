@@ -53,6 +53,21 @@ interface EthereumKey {
   encryptionPassword?: string;
 }
 
+interface CosmosKey {
+  id: string;
+  vault_id: string;
+  network_name: string;
+  address: string;
+  public_key: string;
+  derivation_path?: string;
+  bech32_prefix: string;
+  description?: string;
+  quantum_enhanced: boolean;
+  created_at: string;
+  entropy_source: string;
+  encryption_password?: string;
+}
+
 const VaultDetailsPage: React.FC = () => {
   const { vaultId } = useParams<{ vaultId: string }>();
   const navigate = useNavigate();
@@ -60,6 +75,7 @@ const VaultDetailsPage: React.FC = () => {
   const [items, setItems] = useState<VaultItem[]>([]);
   const [bitcoinKeys, setBitcoinKeys] = useState<BitcoinKey[]>([]);
   const [ethereumKeys, setEthereumKeys] = useState<EthereumKey[]>([]);
+  const [cosmosKeys, setCosmosKeys] = useState<CosmosKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -129,6 +145,19 @@ const VaultDetailsPage: React.FC = () => {
       } catch (keyError) {
         console.error('[VaultDetailsPage] Failed to load Ethereum keys:', keyError);
         setEthereumKeys([]);
+      }
+
+      // Load Cosmos keys for this vault
+      try {
+        console.log('[VaultDetailsPage] Loading Cosmos keys...');
+        const cosmosKeysData = await invoke<CosmosKey[]>('list_cosmos_keys', {
+          vaultId: vaultId
+        });
+        console.log('[VaultDetailsPage] Loaded Cosmos keys:', cosmosKeysData.length);
+        setCosmosKeys(cosmosKeysData);
+      } catch (keyError) {
+        console.error('[VaultDetailsPage] Failed to load Cosmos keys:', keyError);
+        setCosmosKeys([]);
       }
     } catch (err) {
       console.error('[VaultDetailsPage] Failed to load vault details:', err);
@@ -422,6 +451,77 @@ const VaultDetailsPage: React.FC = () => {
                                 <div className="flex items-center space-x-1">
                                   <Key className="w-3 h-3" />
                                   <span>Password: {key.encryptionPassword}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyToClipboard(key.address);
+                          }}
+                          className="p-2 hover:bg-muted rounded transition-colors"
+                          title="Copy Address"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cosmos Keys Subsection */}
+          {cosmosKeys.length > 0 && (
+            <div className="border-b border-gray-700 last:border-b-0">
+              <div className="px-6 py-3 bg-gray-750 border-b border-gray-700">
+                <h3 className="text-lg font-medium flex items-center space-x-2">
+                  <Zap className="w-4 h-4 text-purple-400" />
+                  <span>Cosmos Keys ({cosmosKeys.length})</span>
+                </h3>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {cosmosKeys.map((key) => (
+                  <div
+                    key={key.id}
+                    className="px-6 py-4 border-b border-border last:border-b-0 hover:bg-muted/50 transition-colors group cursor-pointer"
+                    onClick={() => navigate(`/cosmos-keys/${key.id}`)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            <Zap className="w-5 h-5 text-purple-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <h4 className="text-base font-medium truncate">{key.address}</h4>
+                              <span className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded">
+                                {key.network_name}
+                              </span>
+                              {key.quantum_enhanced && (
+                                <span className="text-xs bg-purple-600 text-white px-2 py-1 rounded flex items-center space-x-1">
+                                  <Shield className="w-3 h-3" />
+                                  <span>Quantum</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-4 text-sm text-muted-foreground mt-1">
+                              <div className="flex items-center space-x-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatDate(key.created_at)}</span>
+                              </div>
+                              <div>Prefix: {key.bech32_prefix}</div>
+                              <div>Source: {key.entropy_source}</div>
+                              {key.encryption_password && (
+                                <div className="flex items-center space-x-1">
+                                  <Key className="w-3 h-3" />
+                                  <span>Password: {key.encryption_password}</span>
                                 </div>
                               )}
                             </div>

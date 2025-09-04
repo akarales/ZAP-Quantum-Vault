@@ -189,7 +189,7 @@ impl SimpleBitcoinKeyGenerator {
     fn generate_address(
         &self,
         public_key: &secp256k1::PublicKey,
-        key_type: &BitcoinKeyType,
+        _key_type: &BitcoinKeyType,
         network: Network,
     ) -> Result<String> {
         // Convert secp256k1::PublicKey to bitcoin::CompressedPublicKey

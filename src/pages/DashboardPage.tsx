@@ -22,6 +22,7 @@ export const DashboardPage: React.FC = () => {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [bitcoinKeyCount, setBitcoinKeyCount] = useState<number | null>(null);
   const [ethereumKeyCount, setEthereumKeyCount] = useState<number | null>(null);
+  const [cosmosKeyCount, setCosmosKeyCount] = useState<number | null>(null);
   const [, setLoading] = useState(false);
 
   const getUserCount = async () => {
@@ -38,7 +39,7 @@ export const DashboardPage: React.FC = () => {
 
   const getBitcoinKeyCount = async () => {
     try {
-      const keys = await safeTauriInvoke('list_bitcoin_keys', { vaultId: 'default_vault' });
+      const keys = await safeTauriInvoke('list_bitcoin_keys', { vault_id: 'default_vault' });
       setBitcoinKeyCount(Array.isArray(keys) ? keys.length : 0);
     } catch (error) {
       console.error('Failed to get Bitcoin key count:', error);
@@ -48,7 +49,7 @@ export const DashboardPage: React.FC = () => {
 
   const getEthereumKeyCount = async () => {
     try {
-      const keys = await safeTauriInvoke('list_ethereum_keys', { vaultId: 'default_vault' });
+      const keys = await safeTauriInvoke('list_ethereum_keys', { vault_id: 'default_vault' });
       setEthereumKeyCount(Array.isArray(keys) ? keys.length : 0);
     } catch (error) {
       console.error('Failed to get Ethereum key count:', error);
@@ -56,10 +57,21 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
+  const getCosmosKeyCount = async () => {
+    try {
+      const keys = await safeTauriInvoke('list_cosmos_keys', { vault_id: 'default_vault' });
+      setCosmosKeyCount(Array.isArray(keys) ? keys.length : 0);
+    } catch (error) {
+      console.error('Failed to get Cosmos key count:', error);
+      setCosmosKeyCount(0);
+    }
+  };
+
   useEffect(() => {
     getUserCount();
     getBitcoinKeyCount();
     getEthereumKeyCount();
+    getCosmosKeyCount();
   }, []);
 
   const stats = [
@@ -73,8 +85,8 @@ export const DashboardPage: React.FC = () => {
     },
     {
       title: 'Active Keys',
-      value: (bitcoinKeyCount !== null && ethereumKeyCount !== null) 
-        ? (bitcoinKeyCount + ethereumKeyCount).toString() 
+      value: (bitcoinKeyCount !== null && ethereumKeyCount !== null && cosmosKeyCount !== null) 
+        ? (bitcoinKeyCount + ethereumKeyCount + cosmosKeyCount).toString() 
         : 'Loading...',
       icon: Key,
       description: 'Cryptographic keys managed',
