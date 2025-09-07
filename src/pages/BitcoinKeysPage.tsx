@@ -126,7 +126,7 @@ export const BitcoinKeysPage = () => {
   // Load Bitcoin keys function
   const loadBitcoinKeys = async () => {
     try {
-      const keys = await invoke('list_bitcoin_keys', { vaultId: 'default_vault' }) as BitcoinKey[];
+      const keys = await invoke('list_bitcoin_keys', { vault_id: 'default_vault' }) as BitcoinKey[];
       setBitcoinKeys(keys);
     } catch (error) {
       console.error('Failed to load Bitcoin keys:', error);

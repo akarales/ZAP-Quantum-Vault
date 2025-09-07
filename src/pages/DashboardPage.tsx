@@ -23,6 +23,7 @@ export const DashboardPage: React.FC = () => {
   const [bitcoinKeyCount, setBitcoinKeyCount] = useState<number | null>(null);
   const [ethereumKeyCount, setEthereumKeyCount] = useState<number | null>(null);
   const [cosmosKeyCount, setCosmosKeyCount] = useState<number | null>(null);
+  const [zapKeyCount, setZapKeyCount] = useState<number | null>(null);
   const [, setLoading] = useState(false);
 
   const getUserCount = async () => {
@@ -39,40 +40,261 @@ export const DashboardPage: React.FC = () => {
 
   const getBitcoinKeyCount = async () => {
     try {
-      const keys = await safeTauriInvoke('list_bitcoin_keys', { vault_id: 'default_vault' });
-      setBitcoinKeyCount(Array.isArray(keys) ? keys.length : 0);
+      console.log('🚀 DASHBOARD: Starting getBitcoinKeyCount function');
+      console.log('🔍 DASHBOARD: Checking Tauri environment...');
+      
+      // Check if we're in Tauri environment
+      const { isTauriEnvironment } = await import('../utils/tauri-api');
+      const isTauri = isTauriEnvironment();
+      console.log('🔍 DASHBOARD: Tauri environment check result:', isTauri);
+      
+      if (!isTauri) {
+        console.error('❌ DASHBOARD: Not in Tauri environment, cannot invoke Bitcoin commands');
+        setBitcoinKeyCount(0);
+        return;
+      }
+      
+      console.log('🔍 DASHBOARD: Invoking list_bitcoin_keys with parameters:', {
+        vault_id: 'default_vault'
+      });
+      
+      console.log('🔄 DASHBOARD: About to call safeTauriInvoke for list_bitcoin_keys...');
+      // Try with direct invoke like ZAP blockchain commands
+      const { invoke } = await import('@tauri-apps/api/core');
+      const response = await invoke('list_bitcoin_keys', { vault_id: 'default_vault' });
+      console.log('🔄 DASHBOARD: invoke completed for list_bitcoin_keys');
+      
+      console.log('✅ DASHBOARD: Successfully loaded Bitcoin keys response:', response);
+      console.log('🔍 DASHBOARD: Response type:', typeof response);
+      console.log('🔍 DASHBOARD: Response constructor:', response?.constructor?.name);
+      console.log('🔍 DASHBOARD: Is response an array?', Array.isArray(response));
+      console.log('🔍 DASHBOARD: Raw Bitcoin response:', JSON.stringify(response, null, 2));
+      
+      // Handle both direct array and wrapped response
+      let keys = response;
+      if (response && typeof response === 'object' && !Array.isArray(response)) {
+        // Check if response is wrapped in a property
+        if (response.keys && Array.isArray(response.keys)) {
+          keys = response.keys;
+          console.log('🔧 DASHBOARD: Found keys in response.keys property');
+        } else if (response.data && Array.isArray(response.data)) {
+          keys = response.data;
+          console.log('🔧 DASHBOARD: Found keys in response.data property');
+        } else {
+          console.log('🔍 DASHBOARD: Response object properties:', Object.keys(response));
+        }
+      }
+      
+      const count = Array.isArray(keys) ? keys.length : 0;
+      console.log('📊 DASHBOARD: Final Bitcoin key count:', count);
+      console.log('📊 DASHBOARD: Setting Bitcoin key count to:', count);
+      setBitcoinKeyCount(count);
     } catch (error) {
-      console.error('Failed to get Bitcoin key count:', error);
+      console.error('❌ DASHBOARD: Failed to get Bitcoin key count:', error);
+      console.error('❌ DASHBOARD: Error details:', JSON.stringify(error, null, 2));
+      console.error('❌ DASHBOARD: Error type:', typeof error);
+      console.error('❌ DASHBOARD: Error constructor:', error?.constructor?.name);
+      if (error instanceof Error) {
+        console.error('❌ DASHBOARD: Error message:', error.message);
+        console.error('❌ DASHBOARD: Error stack:', error.stack);
+      }
       setBitcoinKeyCount(0);
+    } finally {
+      console.log('🏁 DASHBOARD: getBitcoinKeyCount function completed');
     }
   };
 
   const getEthereumKeyCount = async () => {
     try {
-      const keys = await safeTauriInvoke('list_ethereum_keys', { vault_id: 'default_vault' });
-      setEthereumKeyCount(Array.isArray(keys) ? keys.length : 0);
+      console.log('🚀 DASHBOARD: Starting getEthereumKeyCount function');
+      console.log('🔍 DASHBOARD: Checking Tauri environment...');
+      
+      // Check if we're in Tauri environment
+      const { isTauriEnvironment } = await import('../utils/tauri-api');
+      const isTauri = isTauriEnvironment();
+      console.log('🔍 DASHBOARD: Tauri environment check result:', isTauri);
+      
+      if (!isTauri) {
+        console.error('❌ DASHBOARD: Not in Tauri environment, cannot invoke Ethereum commands');
+        setEthereumKeyCount(0);
+        return;
+      }
+      
+      console.log('🔍 DASHBOARD: Invoking list_ethereum_keys with parameters:', {
+        vault_id: 'default_vault'
+      });
+      
+      console.log('🔄 DASHBOARD: About to call invoke for list_ethereum_keys...');
+      // Try with direct invoke like ZAP blockchain commands
+      const { invoke } = await import('@tauri-apps/api/core');
+      const response = await invoke('list_ethereum_keys', { vault_id: 'default_vault' });
+      console.log('🔄 DASHBOARD: invoke completed for list_ethereum_keys');
+      
+      console.log('✅ DASHBOARD: Successfully loaded Ethereum keys response:', response);
+      console.log('🔍 DASHBOARD: Response type:', typeof response);
+      console.log('🔍 DASHBOARD: Response constructor:', response?.constructor?.name);
+      console.log('🔍 DASHBOARD: Is response an array?', Array.isArray(response));
+      console.log('🔍 DASHBOARD: Raw Ethereum response:', JSON.stringify(response, null, 2));
+      
+      // Handle both direct array and wrapped response
+      let keys = response;
+      if (response && typeof response === 'object' && !Array.isArray(response)) {
+        // Check if response is wrapped in a property
+        if (response.keys && Array.isArray(response.keys)) {
+          keys = response.keys;
+          console.log('🔧 DASHBOARD: Found keys in response.keys property');
+        } else if (response.data && Array.isArray(response.data)) {
+          keys = response.data;
+          console.log('🔧 DASHBOARD: Found keys in response.data property');
+        } else {
+          console.log('🔍 DASHBOARD: Response object properties:', Object.keys(response));
+        }
+      }
+      
+      const count = Array.isArray(keys) ? keys.length : 0;
+      console.log('📊 DASHBOARD: Final Ethereum key count:', count);
+      console.log('📊 DASHBOARD: Setting Ethereum key count to:', count);
+      setEthereumKeyCount(count);
     } catch (error) {
-      console.error('Failed to get Ethereum key count:', error);
+      console.error('❌ DASHBOARD: Failed to get Ethereum key count:', error);
+      console.error('❌ DASHBOARD: Error details:', JSON.stringify(error, null, 2));
+      console.error('❌ DASHBOARD: Error type:', typeof error);
+      console.error('❌ DASHBOARD: Error constructor:', error?.constructor?.name);
+      if (error instanceof Error) {
+        console.error('❌ DASHBOARD: Error message:', error.message);
+        console.error('❌ DASHBOARD: Error stack:', error.stack);
+      }
       setEthereumKeyCount(0);
+    } finally {
+      console.log('🏁 DASHBOARD: getEthereumKeyCount function completed');
     }
   };
 
   const getCosmosKeyCount = async () => {
     try {
+      console.log('🚀 DASHBOARD: Starting getCosmosKeyCount function');
+      console.log('🔍 DASHBOARD: Invoking list_cosmos_keys with parameters:', {
+        vault_id: 'default_vault'
+      });
+      
       const keys = await safeTauriInvoke('list_cosmos_keys', { vault_id: 'default_vault' });
+      
+      console.log('✅ DASHBOARD: Successfully loaded Cosmos keys:', keys);
+      console.log('📊 DASHBOARD: Cosmos key count:', Array.isArray(keys) ? keys.length : 0);
+      console.log('🔍 DASHBOARD: Keys array check - isArray:', Array.isArray(keys), 'type:', typeof keys);
+      
       setCosmosKeyCount(Array.isArray(keys) ? keys.length : 0);
     } catch (error) {
-      console.error('Failed to get Cosmos key count:', error);
+      console.error('❌ DASHBOARD: Failed to get Cosmos key count:', error);
+      console.error('❌ DASHBOARD: Error details:', JSON.stringify(error, null, 2));
       setCosmosKeyCount(0);
+    } finally {
+      console.log('🏁 DASHBOARD: getCosmosKeyCount function completed');
+    }
+  };
+
+  const getZapKeyCount = async () => {
+    try {
+      console.log('🚀 DASHBOARD: Starting getZapKeyCount function');
+      console.log('🔍 DASHBOARD: Invoking list_zap_blockchain_keys with parameters:', {
+        vault_id: 'default_vault',
+        key_type: null
+      });
+      
+      const keys = await safeTauriInvoke('list_zap_blockchain_keys', { 
+        vault_id: 'default_vault', 
+        key_type: null 
+      });
+      
+      console.log('✅ DASHBOARD: Successfully loaded ZAP blockchain keys:', keys);
+      console.log('📊 DASHBOARD: ZAP key count:', Array.isArray(keys) ? keys.length : 0);
+      
+      setZapKeyCount(Array.isArray(keys) ? keys.length : 0);
+    } catch (error) {
+      console.error('❌ DASHBOARD: Failed to get ZAP blockchain key count:', error);
+      console.error('❌ DASHBOARD: Error details:', JSON.stringify(error, null, 2));
+      setZapKeyCount(0);
+    } finally {
+      console.log('🏁 DASHBOARD: getZapKeyCount function completed');
     }
   };
 
   useEffect(() => {
-    getUserCount();
-    getBitcoinKeyCount();
-    getEthereumKeyCount();
-    getCosmosKeyCount();
+    console.log('🚀 DASHBOARD: Component mounted, starting all key count loading');
+    console.log('🔄 DASHBOARD: Loading user count and all blockchain key counts in parallel');
+    
+    // Add delay to ensure proper initialization
+    const loadCounts = async () => {
+      try {
+        console.log('🔄 DASHBOARD: Starting getUserCount...');
+        await getUserCount();
+        console.log('✅ DASHBOARD: getUserCount completed');
+        
+        // Test Bitcoin command availability with detailed logging
+        console.log('🧪 DASHBOARD: Testing Bitcoin command availability...');
+        try {
+          console.log('🧪 DASHBOARD: About to call safeTauriInvoke for Bitcoin test...');
+          const testResult = await safeTauriInvoke('list_bitcoin_keys', { vault_id: 'test' });
+          console.log('🧪 DASHBOARD: Bitcoin command test SUCCESS - result:', testResult);
+        } catch (testError) {
+          console.error('🧪 DASHBOARD: Bitcoin command test FAILED:', testError);
+          if (testError instanceof Error) {
+            console.error('🧪 DASHBOARD: Bitcoin test error message:', testError.message);
+            console.error('🧪 DASHBOARD: Bitcoin test error stack:', testError.stack);
+          }
+        }
+        
+        console.log('🔄 DASHBOARD: Starting getBitcoinKeyCount...');
+        await getBitcoinKeyCount();
+        console.log('✅ DASHBOARD: getBitcoinKeyCount completed');
+        
+        // Test Ethereum command availability with detailed logging
+        console.log('🧪 DASHBOARD: Testing Ethereum command availability...');
+        try {
+          console.log('🧪 DASHBOARD: About to call safeTauriInvoke for Ethereum test...');
+          const testResult = await safeTauriInvoke('list_ethereum_keys', { vault_id: 'test' });
+          console.log('🧪 DASHBOARD: Ethereum command test SUCCESS - result:', testResult);
+        } catch (testError) {
+          console.error('🧪 DASHBOARD: Ethereum command test FAILED:', testError);
+          if (testError instanceof Error) {
+            console.error('🧪 DASHBOARD: Ethereum test error message:', testError.message);
+            console.error('🧪 DASHBOARD: Ethereum test error stack:', testError.stack);
+          }
+        }
+        
+        console.log('🔄 DASHBOARD: Starting getEthereumKeyCount...');
+        await getEthereumKeyCount();
+        console.log('✅ DASHBOARD: getEthereumKeyCount completed');
+        
+        console.log('🔄 DASHBOARD: Starting getCosmosKeyCount...');
+        await getCosmosKeyCount();
+        console.log('✅ DASHBOARD: getCosmosKeyCount completed');
+        
+        console.log('🔄 DASHBOARD: Starting getZapKeyCount...');
+        await getZapKeyCount();
+        console.log('✅ DASHBOARD: getZapKeyCount completed');
+        
+        console.log('✅ DASHBOARD: All key count loading functions completed');
+      } catch (error) {
+        console.error('❌ DASHBOARD: Error in loadCounts:', error);
+      }
+    };
+    
+    loadCounts();
   }, []);
+
+  // Log state changes for debugging
+  useEffect(() => {
+    console.log('📊 DASHBOARD: Key count state update:', {
+      bitcoinKeyCount,
+      ethereumKeyCount,
+      cosmosKeyCount,
+      zapKeyCount,
+      totalCalculated: (bitcoinKeyCount !== null && ethereumKeyCount !== null && cosmosKeyCount !== null && zapKeyCount !== null) 
+        ? (bitcoinKeyCount + ethereumKeyCount + cosmosKeyCount + zapKeyCount) 
+        : 'Not all counts loaded yet'
+    });
+  }, [bitcoinKeyCount, ethereumKeyCount, cosmosKeyCount, zapKeyCount]);
 
   const stats = [
     {
@@ -84,14 +306,46 @@ export const DashboardPage: React.FC = () => {
       color: 'text-blue-600'
     },
     {
-      title: 'Active Keys',
-      value: (bitcoinKeyCount !== null && ethereumKeyCount !== null && cosmosKeyCount !== null) 
-        ? (bitcoinKeyCount + ethereumKeyCount + cosmosKeyCount).toString() 
+      title: 'Total Keys',
+      value: (bitcoinKeyCount !== null && ethereumKeyCount !== null && cosmosKeyCount !== null && zapKeyCount !== null) 
+        ? (bitcoinKeyCount + ethereumKeyCount + cosmosKeyCount + zapKeyCount).toString() 
         : 'Loading...',
       icon: Key,
-      description: 'Cryptographic keys managed',
+      description: 'All cryptographic keys managed',
       trend: '+2%',
       color: 'text-green-600'
+    },
+    {
+      title: 'Bitcoin Keys',
+      value: bitcoinKeyCount !== null ? bitcoinKeyCount.toString() : 'Loading...',
+      icon: Key,
+      description: 'Bitcoin blockchain keys',
+      trend: bitcoinKeyCount !== null && bitcoinKeyCount > 0 ? 'Active' : 'None',
+      color: 'text-orange-600'
+    },
+    {
+      title: 'Ethereum Keys',
+      value: ethereumKeyCount !== null ? ethereumKeyCount.toString() : 'Loading...',
+      icon: Key,
+      description: 'Ethereum blockchain keys',
+      trend: ethereumKeyCount !== null && ethereumKeyCount > 0 ? 'Active' : 'None',
+      color: 'text-blue-500'
+    },
+    {
+      title: 'Cosmos Keys',
+      value: cosmosKeyCount !== null ? cosmosKeyCount.toString() : 'Loading...',
+      icon: Key,
+      description: 'Cosmos IBC network keys',
+      trend: cosmosKeyCount !== null && cosmosKeyCount > 0 ? 'Active' : 'None',
+      color: 'text-purple-600'
+    },
+    {
+      title: 'ZAP Keys',
+      value: zapKeyCount !== null ? zapKeyCount.toString() : 'Loading...',
+      icon: Key,
+      description: 'ZAP blockchain keys',
+      trend: zapKeyCount !== null && zapKeyCount > 0 ? 'Active' : 'None',
+      color: 'text-emerald-600'
     },
     {
       title: 'Security Score',

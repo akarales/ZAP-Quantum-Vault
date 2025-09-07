@@ -11,6 +11,8 @@ mod ethereum_commands;
 mod ethereum_keys;
 mod cosmos_keys;
 mod cosmos_commands;
+mod zap_blockchain_keys;
+mod zap_blockchain_commands;
 mod cold_storage;
 mod cold_storage_commands;
 pub mod crypto;
@@ -42,6 +44,12 @@ use crate::cosmos_commands::{
     generate_cosmos_key, list_cosmos_keys, get_cosmos_key_by_id, decrypt_cosmos_key, 
     decrypt_cosmos_private_key, export_cosmos_key, trash_cosmos_key, restore_cosmos_key, 
     list_trashed_cosmos_keys, delete_cosmos_key_permanently
+};
+use crate::zap_blockchain_commands::{
+    generate_zap_genesis_keyset, list_zap_blockchain_keys, get_zap_blockchain_key_by_id,
+    delete_zap_blockchain_key, export_zap_genesis_config, get_zap_networks,
+    list_trashed_zap_blockchain_keys, restore_zap_blockchain_key, permanently_delete_zap_blockchain_key,
+    decrypt_zap_blockchain_private_key
 };
 // Vault commands temporarily disabled
 // Offline vault commands temporarily disabled
@@ -179,6 +187,16 @@ pub fn run() {
             restore_cosmos_key,
             list_trashed_cosmos_keys,
             delete_cosmos_key_permanently,
+            generate_zap_genesis_keyset,
+            list_zap_blockchain_keys,
+            get_zap_blockchain_key_by_id,
+            delete_zap_blockchain_key,
+            export_zap_genesis_config,
+            get_zap_networks,
+            list_trashed_zap_blockchain_keys,
+            restore_zap_blockchain_key,
+            permanently_delete_zap_blockchain_key,
+            decrypt_zap_blockchain_private_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

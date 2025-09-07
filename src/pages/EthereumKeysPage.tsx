@@ -75,7 +75,7 @@ export const EthereumKeysPage = () => {
   // Load functions
   const loadEthereumKeys = async () => {
     try {
-      const keys = await invoke('list_ethereum_keys', { vaultId: currentVaultId }) as EthereumKey[];
+      const keys = await invoke('list_ethereum_keys', { vault_id: currentVaultId }) as EthereumKey[];
       setEthereumKeys(keys);
     } catch (error) {
       console.error('Failed to load Ethereum keys:', error);

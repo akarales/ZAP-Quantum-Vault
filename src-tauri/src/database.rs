@@ -403,6 +403,82 @@ pub async fn initialize_database_with_app_handle(app_handle: &tauri::AppHandle) 
         .await?;
     }
 
+    // ZAP Blockchain keys table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS zap_blockchain_keys (
+            id TEXT PRIMARY KEY,
+            vault_id TEXT NOT NULL,
+            key_type TEXT NOT NULL, -- 'genesis', 'validator', 'treasury', 'governance', 'emergency'
+            network_name TEXT NOT NULL, -- 'ZAP Mainnet', 'ZAP Testnet', 'ZAP Devnet'
+            key_name TEXT NOT NULL,
+            description TEXT,
+            encrypted_private_key BLOB NOT NULL,
+            public_key BLOB NOT NULL,
+            address TEXT NOT NULL,
+            derivation_path TEXT,
+            entropy_source TEXT NOT NULL DEFAULT 'quantum_enhanced',
+            encryption_password TEXT NOT NULL,
+            quantum_enhanced BOOLEAN DEFAULT TRUE,
+            metadata TEXT, -- JSON metadata for key-specific data
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_used DATETIME,
+            is_active BOOLEAN DEFAULT TRUE,
+            FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // ZAP Blockchain network configurations table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS zap_blockchain_networks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            chain_id TEXT NOT NULL,
+            bech32_prefix TEXT NOT NULL,
+            coin_type INTEGER NOT NULL,
+            network_type TEXT NOT NULL, -- 'mainnet', 'testnet', 'devnet'
+            enabled BOOLEAN DEFAULT TRUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // ZAP Blockchain genesis configurations table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS zap_blockchain_genesis_config (
+            id TEXT PRIMARY KEY,
+            network_name TEXT NOT NULL,
+            initial_validators INTEGER NOT NULL DEFAULT 5,
+            governance_council INTEGER NOT NULL DEFAULT 7,
+            emergency_recovery INTEGER NOT NULL DEFAULT 3,
+            consensus_algorithm TEXT NOT NULL DEFAULT 'ConsensusBFT+ML-DSA-87',
+            quantum_safe_enabled BOOLEAN DEFAULT TRUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
+    // Insert default ZAP Blockchain networks if they don't exist
+    let zap_network_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM zap_blockchain_networks")
+        .fetch_one(&pool)
+        .await?;
+
+    if zap_network_count == 0 {
+        sqlx::query(
+            "INSERT INTO zap_blockchain_networks (name, chain_id, bech32_prefix, coin_type, network_type) VALUES
+            ('ZAP Mainnet', 'zap-mainnet-1', 'zap', 9999, 'mainnet'),
+            ('ZAP Testnet', 'zap-testnet-1', 'zaptest', 9998, 'testnet'),
+            ('ZAP Devnet', 'zap-devnet-1', 'zapdev', 9997, 'devnet')"
+        )
+        .execute(&pool)
+        .await?;
+    }
+
     // Seed database with admin user and test data
     seed_database(&pool).await?;
     

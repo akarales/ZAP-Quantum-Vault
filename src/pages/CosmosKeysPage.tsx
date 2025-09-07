@@ -121,20 +121,72 @@ export const CosmosKeysPage = () => {
   // Load functions
   const loadCosmosKeys = async () => {
     try {
+      console.log('🚀 COSMOS PAGE: Starting loadCosmosKeys function');
+      console.log('🔍 COSMOS PAGE: Invoking list_cosmos_keys with parameters:', {
+        vault_id: currentVaultId
+      });
+      
       const keys = await invoke('list_cosmos_keys', { vault_id: currentVaultId }) as CosmosKey[];
+      
+      console.log('✅ COSMOS PAGE: Successfully loaded Cosmos keys:', keys);
+      console.log('📊 COSMOS PAGE: Cosmos key count:', Array.isArray(keys) ? keys.length : 0);
+      console.log('🔍 COSMOS PAGE: Keys array check - isArray:', Array.isArray(keys), 'type:', typeof keys);
+      
+      if (Array.isArray(keys) && keys.length > 0) {
+        console.log('📋 COSMOS PAGE: Key details breakdown:');
+        keys.forEach((key, index) => {
+          console.log(`  Key ${index + 1}:`, {
+            id: key.id,
+            network: key.network_name,
+            address: key.address,
+            quantum_enhanced: key.quantum_enhanced,
+            created_at: key.created_at
+          });
+        });
+      }
+      
       setCosmosKeys(keys);
+      console.log('✅ COSMOS PAGE: Cosmos keys state updated successfully');
     } catch (error) {
-      console.error('Failed to load Cosmos keys:', error);
+      console.error('❌ COSMOS PAGE: Failed to load Cosmos keys:', error);
+      console.error('❌ COSMOS PAGE: Error details:', JSON.stringify(error, null, 2));
+    } finally {
+      console.log('🏁 COSMOS PAGE: loadCosmosKeys function completed');
     }
   };
 
   const loadTrashedKeys = async () => {
     try {
+      console.log('🚀 COSMOS PAGE: Starting loadTrashedKeys function');
+      console.log('🔍 COSMOS PAGE: Invoking list_trashed_cosmos_keys');
+      
       const keys = await invoke('list_trashed_cosmos_keys') as CosmosKey[];
+      
+      console.log('✅ COSMOS PAGE: Successfully loaded trashed Cosmos keys:', keys);
+      console.log('📊 COSMOS PAGE: Trashed Cosmos key count:', Array.isArray(keys) ? keys.length : 0);
+      console.log('🔍 COSMOS PAGE: Trashed keys array check - isArray:', Array.isArray(keys), 'type:', typeof keys);
+      
+      if (Array.isArray(keys) && keys.length > 0) {
+        console.log('📋 COSMOS PAGE: Trashed key details breakdown:');
+        keys.forEach((key, index) => {
+          console.log(`  Trashed Key ${index + 1}:`, {
+            id: key.id,
+            network: key.network_name,
+            address: key.address,
+            quantum_enhanced: key.quantum_enhanced,
+            created_at: key.created_at
+          });
+        });
+      }
+      
       setTrashedKeys(keys);
+      console.log('✅ COSMOS PAGE: Trashed Cosmos keys state updated successfully');
     } catch (error) {
-      console.error('Failed to load trashed Cosmos keys:', error);
+      console.error('❌ COSMOS PAGE: Failed to load trashed Cosmos keys:', error);
+      console.error('❌ COSMOS PAGE: Error details:', JSON.stringify(error, null, 2));
       setTrashedKeys([]);
+    } finally {
+      console.log('🏁 COSMOS PAGE: loadTrashedKeys function completed');
     }
   };
 
@@ -175,13 +227,18 @@ export const CosmosKeysPage = () => {
 
   useEffect(() => {
     const loadData = async () => {
+      console.log('🚀 COSMOS PAGE: Component mounted, starting data loading');
       setLoading(true);
       try {
+        console.log('🔄 COSMOS PAGE: Loading both active and trashed Cosmos keys in parallel');
         await Promise.all([loadCosmosKeys(), loadTrashedKeys()]);
+        console.log('✅ COSMOS PAGE: All data loading completed successfully');
       } catch (error) {
-        console.error('Failed to load data:', error);
+        console.error('❌ COSMOS PAGE: Failed to load data:', error);
+        console.error('❌ COSMOS PAGE: Error details:', JSON.stringify(error, null, 2));
       } finally {
         setLoading(false);
+        console.log('🏁 COSMOS PAGE: Component initialization completed');
       }
     };
     
@@ -195,6 +252,14 @@ export const CosmosKeysPage = () => {
       return;
     }
 
+    console.log('🚀 COSMOS PAGE: Starting Cosmos key generation');
+    console.log('🔍 COSMOS PAGE: Generation parameters:', {
+      vaultId: currentVaultId,
+      networkName: keyForm.network,
+      description: keyForm.description,
+      passwordLength: keyForm.password.length
+    });
+
     setLoading(true);
     setError('');
     setSuccess('');
@@ -207,6 +272,13 @@ export const CosmosKeysPage = () => {
         password: keyForm.password,
         description: keyForm.description
       }) as { address: string, publicKey: string, networkName: string, bech32Prefix: string };
+
+      console.log('✅ COSMOS PAGE: Cosmos key generated successfully:', {
+        address: result.address,
+        network: result.networkName,
+        bech32Prefix: result.bech32Prefix,
+        publicKeyLength: result.publicKey?.length || 0
+      });
 
       setGeneratedAddress({
         address: result.address,
@@ -224,11 +296,16 @@ export const CosmosKeysPage = () => {
         description: ''
       }));
       
+      console.log('🔄 COSMOS PAGE: Reloading Cosmos keys after generation');
       await loadCosmosKeys();
+      console.log('✅ COSMOS PAGE: Key generation process completed');
     } catch (error) {
+      console.error('❌ COSMOS PAGE: Failed to generate Cosmos key:', error);
+      console.error('❌ COSMOS PAGE: Error details:', JSON.stringify(error, null, 2));
       setError(`Failed to generate key: ${error}`);
     } finally {
       setLoading(false);
+      console.log('🏁 COSMOS PAGE: Key generation handler completed');
     }
   };
 

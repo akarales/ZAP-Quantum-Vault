@@ -791,6 +791,72 @@ pub async fn export_all_vault_data_for_backup(
         }
 
         info!("[VAULT_EXPORT] Added {} Bitcoin keys to vault '{}'", bitcoin_keys_count, vault_name);
+
+        // Add ZAP Blockchain keys as vault items
+        let zap_blockchain_key_rows = sqlx::query(
+            "SELECT id, vault_id, key_type, network_name, key_name, description, 
+                    encrypted_private_key, public_key, address, derivation_path, 
+                    entropy_source, encryption_password, quantum_enhanced, metadata, 
+                    created_at, updated_at, last_used, is_active
+             FROM zap_blockchain_keys WHERE vault_id = ? AND is_active = 1"
+        )
+        .bind(&vault_id)
+        .fetch_all(db)
+        .await
+        .map_err(|e| {
+            error!("[VAULT_EXPORT] ❌ Failed to fetch ZAP blockchain keys for vault {}: {}", vault_id, e);
+            e.to_string()
+        })?;
+
+        let zap_keys_count = zap_blockchain_key_rows.len();
+        for zap_key_row in zap_blockchain_key_rows {
+            // Create encrypted data structure for ZAP blockchain key
+            let encrypted_private_key: Vec<u8> = zap_key_row.get("encrypted_private_key");
+            let public_key: Vec<u8> = zap_key_row.get("public_key");
+            
+            // Convert binary data to base64 for JSON storage
+            let encrypted_data = serde_json::json!({
+                "encrypted_private_key": general_purpose::STANDARD.encode(&encrypted_private_key),
+                "public_key": general_purpose::STANDARD.encode(&public_key),
+                "key_type": zap_key_row.get::<String, _>("key_type"),
+                "network_name": zap_key_row.get::<String, _>("network_name"),
+                "address": zap_key_row.get::<String, _>("address"),
+                "derivation_path": zap_key_row.get::<Option<String>, _>("derivation_path"),
+                "entropy_source": zap_key_row.get::<String, _>("entropy_source"),
+                "encryption_password": zap_key_row.get::<String, _>("encryption_password"),
+                "quantum_enhanced": zap_key_row.get::<bool, _>("quantum_enhanced"),
+                "metadata": zap_key_row.get::<Option<String>, _>("metadata")
+            }).to_string();
+
+            // Generate a title from key type and network
+            let key_type: String = zap_key_row.get("key_type");
+            let network_name: String = zap_key_row.get("network_name");
+            let key_name: String = zap_key_row.get("key_name");
+            let title = format!("ZAP Blockchain Key ({} - {} - {})", key_type, network_name, key_name);
+
+            items.push(VaultItem {
+                id: zap_key_row.get("id"),
+                vault_id: zap_key_row.get("vault_id"),
+                item_type: "zap_blockchain_key".to_string(),
+                title,
+                encrypted_data,
+                metadata: zap_key_row.get("metadata"),
+                tags: None,
+                created_at: {
+                    let created_str: String = zap_key_row.get("created_at");
+                    parse_datetime_safe(&created_str, &format!("zap blockchain key {} created_at", zap_key_row.get::<String, _>("id")))?
+                },
+                updated_at: {
+                    // Use last_used or updated_at or created_at as updated_at
+                    let updated_str: String = zap_key_row.get::<Option<String>, _>("last_used")
+                        .or_else(|| zap_key_row.get::<Option<String>, _>("updated_at"))
+                        .unwrap_or_else(|| zap_key_row.get("created_at"));
+                    parse_datetime_safe(&updated_str, &format!("zap blockchain key {} updated_at", zap_key_row.get::<String, _>("id")))?
+                },
+            });
+        }
+
+        info!("[VAULT_EXPORT] Added {} ZAP blockchain keys to vault '{}'", zap_keys_count, vault_name);
         
         total_items += items.len();
         info!("[VAULT_EXPORT] Vault '{}' has {} items", vault_name, items.len());

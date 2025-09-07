@@ -319,8 +319,8 @@ pub async fn generate_cosmos_key(
     
     // Convert keys to hex
     let private_key_hex = generator.private_key_to_hex(&key_pair.private_key);
-    let public_key_hex = generator.public_key_to_hex(&key_pair.public_key);
-    log::info!("cosmos_commands: Private key length: {}, Public key length: {}", private_key_hex.len(), public_key_hex.len());
+    let public_key_base64 = generator.public_key_to_base64(&key_pair.public_key);
+    log::info!("cosmos_commands: Private key length: {}, Public key length: {}", private_key_hex.len(), public_key_base64.len());
 
     // Encrypt private key
     log::info!("cosmos_commands: Encrypting private key...");
@@ -343,7 +343,7 @@ pub async fn generate_cosmos_key(
     .bind(&network_config.name)
     .bind(&network_config.bech32_prefix)
     .bind(&key_pair.address)
-    .bind(&public_key_hex)
+    .bind(&public_key_base64)
     .bind(&encrypted_private_key)
     .bind::<Option<String>>(None) // derivation_path
     .bind(&description)
@@ -365,7 +365,7 @@ pub async fn generate_cosmos_key(
     Ok(CosmosKeyResponse {
         id: key_id,
         address: key_pair.address,
-        public_key: public_key_hex,
+        public_key: public_key_base64,
         network_name: network_config.name,
         bech32_prefix: network_config.bech32_prefix,
         derivation_path: None,

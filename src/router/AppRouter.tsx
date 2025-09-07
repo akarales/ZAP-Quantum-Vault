@@ -10,6 +10,19 @@ import { EthereumKeyDetailsPage } from '@/pages/EthereumKeyDetailsPage';
 import { CosmosKeysPage } from '@/pages/CosmosKeysPage';
 import { CosmosKeyDetailsPage } from '@/pages/CosmosKeyDetailsPage';
 import { ZAPKeysPage } from '@/pages/ZAPKeysPage';
+import { ZAPBlockchainKeysPage } from '@/pages/ZAPBlockchainKeysPage';
+import { ZAPBlockchainKeyDetailsPage } from '@/pages/ZAPBlockchainKeyDetailsPage';
+import { ZAPBlockchainGenesisDetailsPage } from '@/pages/ZAPBlockchainGenesisDetailsPage';
+import { ZAPBlockchainValidatorDetailsPage } from '@/pages/ZAPBlockchainValidatorDetailsPage';
+import { ZAPBlockchainTreasuryDetailsPage } from '@/pages/ZAPBlockchainTreasuryDetailsPage';
+import { ZAPBlockchainGovernanceDetailsPage } from '@/pages/ZAPBlockchainGovernanceDetailsPage';
+import { ZAPBlockchainEmergencyDetailsPage } from '@/pages/ZAPBlockchainEmergencyDetailsPage';
+import { ZAPBlockchainEmergencyPage } from '@/pages/ZAPBlockchainEmergencyPage';
+import { ZAPBlockchainGenesisPage } from '@/pages/ZAPBlockchainGenesisPage';
+import { ZAPBlockchainValidatorPage } from '@/pages/ZAPBlockchainValidatorPage';
+import { ZAPBlockchainTreasuryPage } from '@/pages/ZAPBlockchainTreasuryPage';
+import { ZAPBlockchainGovernancePage } from '@/pages/ZAPBlockchainGovernancePage';
+import ZAPBlockchainTrashPage from '@/pages/ZAPBlockchainTrashPage';
 import { SecurityCenterPage } from '@/pages/SecurityCenterPage';
 import { UserManagementPage } from '@/pages/UserManagementPage';
 import { AdminResetPage } from '@/pages/AdminResetPage';
@@ -225,6 +238,80 @@ export const AppRouter: React.FC = () => {
         <Route path="/zap-keys" element={
           <ProtectedRoute>
             <ZAPKeysPage />
+          </ProtectedRoute>
+        } />
+        
+        {/* ZAP Blockchain Routes */}
+        <Route path="/zap-blockchain/keys" element={
+          <ProtectedRoute>
+            <ZAPBlockchainKeysPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-blockchain/keys/:keyId" element={
+          <ProtectedRoute>
+            <ZAPBlockchainKeyDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-blockchain/genesis" element={
+          <ProtectedRoute>
+            <ZAPBlockchainGenesisPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/zap-blockchain/genesis/:keyId" element={
+          <ProtectedRoute>
+            <ZAPBlockchainGenesisDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-blockchain/validators" element={
+          <ProtectedRoute>
+            <ZAPBlockchainValidatorPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/zap-blockchain/validators/:keyId" element={
+          <ProtectedRoute>
+            <ZAPBlockchainValidatorDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-blockchain/treasury" element={
+          <ProtectedRoute>
+            <ZAPBlockchainTreasuryPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/zap-blockchain/treasury/:keyId" element={
+          <ProtectedRoute>
+            <ZAPBlockchainTreasuryDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-blockchain/governance" element={
+          <ProtectedRoute>
+            <ZAPBlockchainGovernancePage />
+          </ProtectedRoute>
+        } />
+        <Route path="/zap-blockchain/governance/:keyId" element={
+          <ProtectedRoute>
+            <ZAPBlockchainGovernanceDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-blockchain/emergency" element={
+          <ProtectedRoute>
+            <ZAPBlockchainEmergencyPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/zap-blockchain/emergency/:keyId" element={
+          <ProtectedRoute>
+            <ZAPBlockchainEmergencyDetailsPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/zap-blockchain/trash" element={
+          <ProtectedRoute>
+            <ZAPBlockchainTrashPage />
           </ProtectedRoute>
         } />
         

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  ArrowLeft, Copy, Eye, EyeOff, Shield, Key, Calendar, Network, Trash2, Download, QrCode, AlertTriangle, CheckCircle, Zap
+  ArrowLeft, Copy, Eye, EyeOff, Shield, Key, Calendar, Network, Trash2, Download, AlertTriangle, CheckCircle, Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -119,20 +119,20 @@ export const CosmosKeyDetailsPage = () => {
     }
   };
 
-  const deleteKey = async () => {
+  const moveToTrash = async () => {
     if (!cosmosKey) return;
     
-    if (!confirm('Are you sure you want to delete this Cosmos key? This action cannot be undone.')) {
+    if (!confirm('Are you sure you want to move this Cosmos key to trash? You can restore it later if needed.')) {
       return;
     }
     
     try {
-      await invoke('delete_cosmos_key', { keyId: cosmosKey.id });
-      setSuccess('Cosmos key deleted successfully');
+      await invoke('trash_cosmos_key', { keyId: cosmosKey.id });
+      setSuccess('Cosmos key moved to trash successfully');
       setTimeout(() => navigate('/cosmos-keys'), 2000);
     } catch (err) {
-      setError('Failed to delete Cosmos key');
-      console.error('Error deleting key:', err);
+      setError('Failed to move Cosmos key to trash');
+      console.error('Error moving key to trash:', err);
     }
   };
 
@@ -401,11 +401,11 @@ export const CosmosKeyDetailsPage = () => {
               
               <Button 
                 variant="destructive"
-                onClick={deleteKey}
+                onClick={moveToTrash}
                 className="w-full"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
-                Delete Key
+                Move to Trash
               </Button>
             </div>
           </CardContent>

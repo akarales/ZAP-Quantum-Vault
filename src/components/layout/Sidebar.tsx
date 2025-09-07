@@ -14,14 +14,14 @@ import {
   Activity,
   HardDrive,
   Zap,
-  Network,
   BarChart3,
   HelpCircle,
   Headphones,
   Building2,
   Atom,
   Snowflake,
-  Bitcoin
+  Bitcoin,
+  AlertTriangle
 } from 'lucide-react';
 
 interface SidebarProps {}
@@ -50,11 +50,14 @@ const navigationItems = [
     ]
   },
   {
-    title: 'Quantum & Blockchain',
+    title: 'ZAP Blockchain',
     items: [
-      { name: 'Quantum Safe', href: '/quantum', icon: Atom },
-      { name: 'Transactions', href: '/blockchain/transactions', icon: Zap },
-      { name: 'Networks', href: '/blockchain/networks', icon: Network },
+      { name: 'All Keys', href: '/zap-blockchain/keys', icon: Key },
+      { name: 'Genesis Keys', href: '/zap-blockchain/genesis', icon: Atom },
+      { name: 'Validator Keys', href: '/zap-blockchain/validators', icon: Shield },
+      { name: 'Treasury Keys', href: '/zap-blockchain/treasury', icon: Key },
+      { name: 'Governance Keys', href: '/zap-blockchain/governance', icon: Users },
+      { name: 'Emergency Keys', href: '/zap-blockchain/emergency', icon: AlertTriangle },
     ]
   },
   {
@@ -93,17 +96,17 @@ export const Sidebar: React.FC<SidebarProps> = () => {
                   
                   return (
                     <Button
-                      key={item.href}
-                      variant={isActive ? 'secondary' : 'ghost'}
+                      key={item.name}
+                      variant={isActive ? "secondary" : "ghost"}
                       className={cn(
-                        'w-full justify-start text-foreground hover:text-foreground hover:bg-accent',
-                        isActive && 'bg-secondary text-secondary-foreground'
+                        "w-full justify-start",
+                        isActive && "bg-muted font-medium"
                       )}
                       asChild
                     >
-                      <Link to={item.href} className="text-foreground hover:text-foreground">
+                      <Link to={item.href}>
                         <Icon className="mr-2 h-4 w-4" />
-                        <span className="text-foreground">{item.name}</span>
+                        {item.name}
                       </Link>
                     </Button>
                   );

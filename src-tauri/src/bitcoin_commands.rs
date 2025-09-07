@@ -228,9 +228,11 @@ pub async fn generate_hd_wallet(
 
 #[tauri::command]
 pub async fn list_bitcoin_keys(
-    vault_id: String,
+    vault_id: Option<String>,
     app_state: State<'_, AppState>,
 ) -> Result<Vec<serde_json::Value>, String> {
+    log_info!("bitcoin_commands", &format!("🚀 LIST_BITCOIN_KEYS CALLED with vault_id: {:?}", vault_id));
+    let vault_id = vault_id.unwrap_or_else(|| "default_vault".to_string());
     let db = &app_state.db;
     
     // Run migration for existing keys
@@ -299,6 +301,14 @@ pub async fn list_bitcoin_keys(
             }).collect();
             
             log_info!("bitcoin_commands", &format!("Retrieved {} Bitcoin keys for vault {} (resolved to: {}, query used vault_id: {})", keys.len(), vault_id, effective_vault_id, effective_vault_id));
+            log_info!("bitcoin_commands", &format!("🔍 BACKEND RESPONSE: Returning keys array with {} elements", keys.len()));
+            log_info!("bitcoin_commands", &format!("🔍 BACKEND RESPONSE: First key preview: {}", 
+                if keys.is_empty() { 
+                    "No keys".to_string() 
+                } else { 
+                    serde_json::to_string(&keys[0]).unwrap_or_else(|_| "Serialization failed".to_string())[..std::cmp::min(200, serde_json::to_string(&keys[0]).unwrap_or_else(|_| "".to_string()).len())].to_string()
+                }
+            ));
             Ok(keys)
         },
         Err(e) => {

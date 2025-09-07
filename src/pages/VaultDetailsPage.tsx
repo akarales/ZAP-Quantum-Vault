@@ -125,7 +125,7 @@ const VaultDetailsPage: React.FC = () => {
       try {
         console.log('[VaultDetailsPage] Loading Bitcoin keys...');
         const keys = await invoke<BitcoinKey[]>('list_bitcoin_keys', {
-          vaultId: vaultId
+          vault_id: vaultId
         });
         console.log('[VaultDetailsPage] Loaded Bitcoin keys:', keys.length);
         setBitcoinKeys(keys);
@@ -138,7 +138,7 @@ const VaultDetailsPage: React.FC = () => {
       try {
         console.log('[VaultDetailsPage] Loading Ethereum keys...');
         const ethKeys = await invoke<EthereumKey[]>('list_ethereum_keys', {
-          vaultId: vaultId
+          vault_id: vaultId
         });
         console.log('[VaultDetailsPage] Loaded Ethereum keys:', ethKeys.length);
         setEthereumKeys(ethKeys);
@@ -151,7 +151,7 @@ const VaultDetailsPage: React.FC = () => {
       try {
         console.log('[VaultDetailsPage] Loading Cosmos keys...');
         const cosmosKeysData = await invoke<CosmosKey[]>('list_cosmos_keys', {
-          vaultId: vaultId
+          vault_id: vaultId
         });
         console.log('[VaultDetailsPage] Loaded Cosmos keys:', cosmosKeysData.length);
         setCosmosKeys(cosmosKeysData);

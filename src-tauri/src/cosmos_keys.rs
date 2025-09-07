@@ -1,12 +1,46 @@
 use anyhow::{Result, anyhow};
-use bech32;
 use secp256k1::{Secp256k1, SecretKey, PublicKey};
-use ripemd::{Ripemd160, Digest};
-use sha2::Sha256;
+use bech32;
+use sha2::{Sha256, Digest};
+use ripemd::Ripemd160;
 use bip32::{ExtendedPrivateKey, DerivationPath, Mnemonic, Language, XPrv};
-use rand::{RngCore, rngs::OsRng};
+use rand::{RngCore, rngs::OsRng, thread_rng};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use crate::log_info;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AddressVersion {
+    V1, // SHA256-only (legacy)
+    V2, // SHA256 + RIPEMD160 (standard)
+}
+
+impl Default for AddressVersion {
+    fn default() -> Self {
+        AddressVersion::V2 // Default to v2 for new keys
+    }
+}
+
+impl std::fmt::Display for AddressVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AddressVersion::V1 => write!(f, "v1"),
+            AddressVersion::V2 => write!(f, "v2"),
+        }
+    }
+}
+
+impl std::str::FromStr for AddressVersion {
+    type Err = anyhow::Error;
+    
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "v1" => Ok(AddressVersion::V1),
+            "v2" => Ok(AddressVersion::V2),
+            _ => Err(anyhow!("Invalid address version: {}", s)),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CosmosNetworkConfig {
@@ -68,8 +102,8 @@ impl CosmosKeyGenerator {
         // Derive public key
         let public_key = PublicKey::from_secret_key(&self.secp, &private_key);
 
-        // Generate address
-        let address = self.generate_address(&public_key, &network_config.bech32_prefix)?;
+        // Generate address using v2 (SHA256 + RIPEMD160) by default
+        let address = self.generate_address_v2(&public_key, &network_config.bech32_prefix)?;
 
         let key_pair = CosmosKeyPair {
             private_key,
@@ -84,22 +118,20 @@ impl CosmosKeyGenerator {
         Ok(key_pair)
     }
 
-    /// Generate a Cosmos address from a public key
+    /// Generate a Cosmos address from a public key (v1 - SHA256 only, legacy)
     pub fn generate_address(&self, public_key: &PublicKey, bech32_prefix: &str) -> Result<String> {
-        log::info!("cosmos_keys: Starting address generation with prefix: {}", bech32_prefix);
+        log::info!("cosmos_keys: Starting v1 address generation with prefix: {}", bech32_prefix);
         // Get the compressed public key bytes
         let public_key_bytes = public_key.serialize();
         log::info!("cosmos_keys: Public key serialized, length: {} bytes", public_key_bytes.len());
 
         // Hash the public key with SHA256
         log::info!("cosmos_keys: Hashing public key with SHA256...");
-        let mut hasher = Sha256::new();
-        hasher.update(&public_key_bytes);
-        let hash = hasher.finalize();
+        let sha256_hash = Sha256::digest(&public_key_bytes);
         log::info!("cosmos_keys: SHA256 hash computed");
         
         // Take the first 20 bytes for the address
-        let address_bytes = &hash[..20];
+        let address_bytes = &sha256_hash[..20];
         log::info!("cosmos_keys: Using first 20 bytes of hash for address");
 
         // Encode with bech32
@@ -115,8 +147,51 @@ impl CosmosKeyGenerator {
                 anyhow::anyhow!("Bech32 encoding failed: {}", e)
             })?;
         
-        log::info!("cosmos_keys: Address encoded successfully: {}", address);
+        log::info!("cosmos_keys: v1 address encoded successfully: {}", address);
         Ok(address)
+    }
+
+    /// Generate a Cosmos address using SHA256 + RIPEMD160 (v2 standard)
+    pub fn generate_address_v2(&self, public_key: &PublicKey, bech32_prefix: &str) -> Result<String> {
+        log::info!("cosmos_keys: Starting v2 address generation with prefix: {}", bech32_prefix);
+        
+        // Get the compressed public key bytes
+        let public_key_bytes = public_key.serialize();
+        log::info!("cosmos_keys: Public key serialized, length: {} bytes", public_key_bytes.len());
+
+        // SHA256 hash
+        log::info!("cosmos_keys: Computing SHA256 hash...");
+        let sha256_hash = Sha256::digest(&public_key_bytes);
+        log::info!("cosmos_keys: SHA256 hash computed");
+        
+        // RIPEMD160 hash
+        log::info!("cosmos_keys: Computing RIPEMD160 hash...");
+        let address_bytes = Ripemd160::digest(&sha256_hash);
+        log::info!("cosmos_keys: RIPEMD160 hash computed, using 20 bytes for address");
+
+        // Encode with bech32
+        log::info!("cosmos_keys: Encoding address with bech32...");
+        let hrp = bech32::Hrp::parse(bech32_prefix)
+            .map_err(|e| {
+                log::error!("cosmos_keys: Invalid bech32 prefix '{}': {}", bech32_prefix, e);
+                anyhow::anyhow!("Invalid bech32 prefix: {}", e)
+            })?;
+        let address = bech32::encode::<bech32::Bech32>(hrp, &address_bytes)
+            .map_err(|e| {
+                log::error!("cosmos_keys: Bech32 encoding failed: {}", e);
+                anyhow::anyhow!("Bech32 encoding failed: {}", e)
+            })?;
+        
+        log::info!("cosmos_keys: v2 address encoded successfully: {}", address);
+        Ok(address)
+    }
+
+    /// Generate address with version selection
+    pub fn generate_address_versioned(&self, public_key: &PublicKey, bech32_prefix: &str, version: AddressVersion) -> Result<String> {
+        match version {
+            AddressVersion::V1 => self.generate_address(public_key, bech32_prefix), // Legacy SHA256-only
+            AddressVersion::V2 => self.generate_address_v2(public_key, bech32_prefix), // SHA256 + RIPEMD160
+        }
     }
 
     /// Validate a Cosmos address
@@ -182,16 +257,30 @@ impl CosmosKeyGenerator {
 
     /// Convert private key to hex string
     pub fn private_key_to_hex(&self, private_key: &SecretKey) -> String {
-        let hex_key = hex::encode(private_key.secret_bytes());
-        log::info!("cosmos_keys: Private key converted to hex, length: {} chars", hex_key.len());
+        let secret_bytes = private_key.secret_bytes();
+        let hex_key = hex::encode(&secret_bytes);
+        log::info!("cosmos_keys: Private key converted to hex, length: {} chars, preview: {}", 
+                  hex_key.len(), 
+                  &hex_key[..std::cmp::min(10, hex_key.len())]);
+        log::info!("cosmos_keys: Secret bytes length: {}, first 4 bytes: {:?}", 
+                  secret_bytes.len(), 
+                  &secret_bytes[..std::cmp::min(4, secret_bytes.len())]);
         hex_key
     }
 
-    /// Convert public key to hex string
-    pub fn public_key_to_hex(&self, public_key: &PublicKey) -> String {
-        let hex_key = hex::encode(public_key.serialize());
-        log::info!("cosmos_keys: Public key converted to hex, length: {} chars", hex_key.len());
-        hex_key
+    /// Convert public key to base64 string (for database storage)
+    pub fn public_key_to_base64(&self, public_key: &PublicKey) -> String {
+        let base64_key = base64::encode(public_key.serialize());
+        log::info!("cosmos_keys: Public key converted to base64, length: {} chars", base64_key.len());
+        base64_key
+    }
+
+    /// Convert base64 string to public key
+    pub fn public_key_from_base64(&self, base64_str: &str) -> Result<PublicKey> {
+        let bytes = base64::decode(base64_str)
+            .map_err(|e| anyhow!("Failed to decode base64: {}", e))?;
+        PublicKey::from_slice(&bytes)
+            .map_err(|e| anyhow!("Failed to create public key: {}", e))
     }
 
     /// Convert hex string to private key
@@ -316,8 +405,8 @@ mod tests {
         assert_eq!(key_pair.private_key.secret_bytes(), recovered_private.secret_bytes());
         
         // Test public key conversion
-        let public_hex = generator.public_key_to_hex(&key_pair.public_key);
-        let recovered_public = generator.public_key_from_hex(&public_hex).unwrap();
+        let public_base64 = generator.public_key_to_base64(&key_pair.public_key);
+        let recovered_public = generator.public_key_from_base64(&public_base64).unwrap();
         assert_eq!(key_pair.public_key.serialize(), recovered_public.serialize());
     }
 
