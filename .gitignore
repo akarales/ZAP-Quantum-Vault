@@ -1,16 +1,14 @@
-# Rust
-target/
-
-# Node
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Build output
 dist/
+build/
 
 # Tauri
 src-tauri/target/
-
-# Environment
-.env
-.env.local
+src-tauri/gen/
 
 # IDE
 .vscode/
@@ -22,6 +20,9 @@ src-tauri/target/
 .DS_Store
 Thumbs.db
 
-# Database
-*.db
-*.db-journal
+# Environment
+.env
+.env.local
+
+# Logs
+*.log

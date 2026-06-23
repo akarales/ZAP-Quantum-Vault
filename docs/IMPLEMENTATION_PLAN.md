@@ -6,21 +6,13 @@
 
 ## 1. Summary
 
-Offline, air-gapped, quantum-safe key management for ZAP Blockchain. Tauri 2 + React 19 + Rust backend using ML-DSA-65 (FIPS 204) — same crypto as the blockchain.
-
-### Fixes from old ZQV implementations
-- XOR encryption → AES-256-GCM + Argon2id
-- `pqcrypto-*` C wrappers → pure Rust `ml-dsa` crate
-- Plaintext passwords → Tauri Stronghold
-- Cosmos Ed25519 keys → native ML-DSA-65
-- Broken decryption → deterministic KDF chain
-- Mismatched addresses → BLAKE3 + `zap1` bech32 (matches blockchain)
+Offline, air-gapped, quantum-safe key management for ZAP Blockchain. Tauri 2 + React 19 + Rust backend using **ML-DSA-87** (FIPS 204, NIST Level 5) — same crypto as the blockchain.
 
 ## 2. Tech Stack
 
 **Frontend**: React 19, TypeScript, Vite 6, TailwindCSS 4, shadcn/ui, Zustand, React Router 7, qrcode/qr-scanner
 
-**Backend**: Tauri 2.x, `ml-dsa`, `ml-kem`, `blake3`, `aes-gcm`, `argon2`, `bip39`, `zeroize`, `rusqlite` (SQLCipher), `tauri-plugin-stronghold`, `serde`, `thiserror`, `tracing`
+**Backend**: Tauri 2.x, `ml-dsa`, `ml-kem`, `chacha20poly1305`, `blake3`, `aes-gcm`, `argon2`, `bip39`, `zeroize`, `rusqlite` (SQLCipher), `tauri-plugin-stronghold`, `serde`, `thiserror`, `tracing`
 
 **Dev**: pnpm, Rust stable 1.85+, Vitest, cargo test, Playwright
 
@@ -31,7 +23,7 @@ React Frontend (pages, components, hooks, store, api)
         ↕ Tauri IPC
 Rust Backend
   commands/ — Tauri handlers
-  crypto/ — ML-DSA-65, ML-KEM-1024, BLAKE3, AES-GCM, Argon2id, BIP-39
+  crypto/ — ML-DSA-87, ML-KEM-1024, XChaCha20-Poly1305, BLAKE3, AES-GCM, Argon2id, BIP-39
   vault/ — Stronghold + encrypted storage
   keys/ — Hierarchy + HD derivation
   airgap/ — QR, USB, offline signing
@@ -80,12 +72,25 @@ ZAP_QUANTUM_VAULT/
 - **Address**: `BLAKE3("ZAP_address" || pk)[0..20]` → bech32 `zap1`
 - **Tx hash**: `BLAKE3("ZAP_tx_hash" || tx_bytes)[0..32]`
 - **Block hash**: `BLAKE3("ZAP_block_hash" || block_bytes)[0..32]`
-- **Sign/Verify**: ML-DSA-65 (PK=1952B, SK seed=32B, Sig=3309B)
+- **Sign/Verify**: ML-DSA-87 (FIPS 204, NIST Level 5) — PK=2592B, SK seed=32B, Sig=4627B
+- **KEM**: ML-KEM-1024 (FIPS 203) — EK=1568B, DK seed=64B, CT=1568B, Shared=32B
+- **Channel encryption**: XChaCha20-Poly1305 AEAD (24-byte nonce, 32-byte key)
+- **Note encryption**: XChaCha20-Poly1305 AEAD with ECDH key exchange (Ristretto255)
+- **Hybrid signing**: ML-DSA-87 primary + BLAKE3 keyed-HMAC secondary
+- **Threshold signing**: ML-DSA-87 per-signer signatures with share aggregation
+- **VRF**: Deterministic BLAKE3 keyed-hash VRF (verifiable without secret key)
+- **Proof batching**: Merkle tree batch hashing (renamed from STARK aggregation)
 
 ### Key encryption at rest
 ```
 Password → Argon2id(64MB, 3 iter, 4 parallel) → Master Key
 Master Key → HKDF-SHA256("vault_encryption") → AES-256-GCM key
+```
+
+### Blockchain-compatible AEAD (for channel/note encryption parity)
+```
+Shared secret (ECDH or ML-KEM-1024) → BLAKE3("ZAP_*_aead_key" || shared) → 32-byte key
+XChaCha20Poly1305::encrypt(key, 24-byte random nonce, plaintext) → ciphertext + 16-byte auth tag
 ```
 
 ### Mnemonic: BIP-39, 24 words, path `m/44'/9999'/<purpose>'/<account>/<index>`
@@ -122,7 +127,7 @@ Master Key → HKDF-SHA256("vault_encryption") → AES-256-GCM key
 
 **USB flow**: Detect drive → encrypted envelope + manifest → write → verify → wipe
 
-**Envelope format**: JSON with version, type, encrypted payload, nonce, ML-DSA-65 signature, timestamp, BLAKE3 checksum
+**Envelope format**: JSON with version, type, encrypted payload, nonce, ML-DSA-87 signature, timestamp, BLAKE3 checksum
 
 ## 8. Implementation Phases
 
@@ -132,8 +137,9 @@ Master Key → HKDF-SHA256("vault_encryption") → AES-256-GCM key
 - Base layout, routing, pnpm scripts
 
 ### Phase 2: Crypto Core (Days 3-5)
-- `mldsa65.rs`, `mlkem1024.rs`, `address.rs`, `hash.rs` (match blockchain)
-- `encryption.rs` (AES-GCM), `kdf.rs` (Argon2id+HKDF), `mnemonic.rs`, `hd_derivation.rs`
+- `mldsa87.rs`, `mlkem1024.rs`, `address.rs`, `hash.rs` (match blockchain)
+- `encryption.rs` (AES-GCM for vault, XChaCha20-Poly1305 for blockchain parity), `kdf.rs` (Argon2id+HKDF), `mnemonic.rs`, `hd_derivation.rs`
+- `vrf.rs`, `hybrid_signing.rs`, `threshold.rs`, `proof_batch.rs` (match blockchain quantum module)
 - Unit tests for all
 
 ### Phase 3: Vault & Storage (Days 6-8)
@@ -189,8 +195,9 @@ Master Key → HKDF-SHA256("vault_encryption") → AES-256-GCM key
 [dependencies]
 tauri = { version = "2", features = ["..."] }
 tauri-plugin-stronghold = "2"
-ml-dsa = "0.1"           # ML-DSA-65 (matches blockchain)
-ml-kem = "0.3"            # ML-KEM-1024
+ml-dsa = "0.1"           # ML-DSA-87 (FIPS 204, NIST Level 5 — matches blockchain)
+ml-kem = "0.3"            # ML-KEM-1024 (FIPS 203)
+chacha20poly1305 = "0.10" # XChaCha20-Poly1305 AEAD (blockchain parity)
 blake3 = "1"
 aes-gcm = "0.10"
 argon2 = "0.5"
@@ -211,10 +218,7 @@ uuid = { version = "1", features = ["v4"] }
 
 ## 11. References
 
-- Blockchain crypto: `ZAP_BLOCKCHAIN/src/crypto/mldsa65.rs`, `address.rs`, `hash.rs`
-- Blockchain wallet: `ZAP_BLOCKCHAIN/src/wallet/key_manager.rs`, `tx_signing.rs`
-- Blockchain quantum: `ZAP_BLOCKCHAIN/src/quantum/kem.rs`, `hybrid_signing.rs`
-- Old ZQV reference: `ARCHIVE/ZQV_old/ZAP_QUANTUM_VAULT_CLEAN_IMPLEMENTATION_PLAN.md`
-- Key requirements: `ARCHIVE/ZQV_old/docs/ZAP_BLOCKCHAIN_FORK_KEY_REQUIREMENTS.md`
-- Old ZQV quantum crypto: `ARCHIVE/ZQV_V1/src-tauri/src/quantum_crypto.rs`
-- Old ZQV key types: `ARCHIVE/ZQV_V1/src-tauri/src/zap_blockchain_keys.rs`
+- Blockchain crypto: `ZAP_BLOCKCHAIN/src/crypto/mldsa87.rs`, `address.rs`, `hash.rs`
+- Blockchain wallet: `ZAP_BLOCKCHAIN/src/wallet/key_manager.rs`, `tx_signing.rs`, `note_manager.rs`
+- Blockchain quantum: `ZAP_BLOCKCHAIN/src/quantum/kem.rs`, `hybrid_signing.rs`, `threshold.rs`, `vrf.rs`, `proof_batch.rs`, `channel_encryption.rs`
+- Blockchain security audit: `ZAP_BLOCKCHAIN/docs/SECURITY_AUDIT_2026-06-23.md`

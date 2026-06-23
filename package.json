@@ -1,0 +1,43 @@
+{
+  "name": "zap-quantum-vault",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "lint": "eslint .",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-stronghold": "^2",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-router-dom": "^7",
+    "zustand": "^5",
+    "lucide-react": "^0.460",
+    "clsx": "^2",
+    "tailwind-merge": "^2",
+    "class-variance-authority": "^0.7",
+    "qrcode": "^1",
+    "qr-scanner": "^1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/qrcode": "^1",
+    "@vitejs/plugin-react": "^4",
+    "autoprefixer": "^10",
+    "postcss": "^8",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^6",
+    "vitest": "^2",
+    "@testing-library/react": "^16",
+    "@testing-library/jest-dom": "^6"
+  }
+}

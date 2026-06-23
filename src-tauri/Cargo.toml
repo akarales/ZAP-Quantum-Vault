@@ -1,0 +1,37 @@
+[package]
+name = "zap-quantum-vault"
+version = "1.0.0"
+description = "Offline, air-gapped, quantum-safe key management for ZAP Blockchain"
+authors = ["Alexandros Karales"]
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+name = "zap_quantum_vault_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-stronghold = "2"
+ml-dsa = { version = "0.1", features = ["rand_core", "getrandom"] }
+ml-kem = { version = "0.3", features = ["getrandom"] }
+chacha20poly1305 = { version = "0.10", features = ["alloc"] }
+blake3 = "1"
+aes-gcm = "0.10"
+argon2 = "0.5"
+bip39 = { version = "2", features = ["rand"] }
+zeroize = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+hex = "0.4"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
