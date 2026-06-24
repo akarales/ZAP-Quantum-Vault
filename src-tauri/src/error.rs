@@ -30,6 +30,14 @@ pub enum VaultError {
     Storage(String),
     #[error("airgap error: {0}")]
     AirGap(String),
+    #[error("YubiKey not detected; insert your YubiKey and try again")]
+    YubiKeyNotFound,
+    #[error("YubiKey error: {0}")]
+    YubiKey(String),
+    #[error("a YubiKey is already enrolled for this vault")]
+    YubiKeyAlreadyEnrolled,
+    #[error("no YubiKey is enrolled for this vault")]
+    YubiKeyNotEnrolled,
 }
 
 impl serde::Serialize for VaultError {

@@ -42,6 +42,26 @@ export interface QrRequest {
   secret_key_hex: string;
 }
 
+export interface SlotInfo {
+  slot: number;
+  configured: boolean;
+  requires_touch: boolean;
+}
+
+export interface YubiKeyInfo {
+  detected: boolean;
+  vendor_id: number;
+  product_id: number;
+  name: string;
+  version: string;
+  slots: SlotInfo[];
+}
+
+export interface YubiKeyStatus {
+  enabled: boolean;
+  slot: number;
+}
+
 export const api = {
   vaultStatus: () => invoke<boolean>("vault_status"),
 
@@ -55,6 +75,21 @@ export const api = {
     invoke<string>("change_password", { oldPassword, newPassword }),
 
   lockVault: () => invoke<void>("lock_vault"),
+
+  // Current YubiKey enrollment state for the vault.
+  yubikeyStatus: () => invoke<YubiKeyStatus>("yubikey_status"),
+
+  // Detect a connected YubiKey (throws if none is present).
+  detectYubikey: () => invoke<YubiKeyInfo>("detect_yubikey"),
+
+  // Enroll a YubiKey as a second factor. Requires the YubiKey to be inserted;
+  // the user may need to touch it. `slot` is 1 or 2 (2 is conventional).
+  enrollYubikey: (password: string, slot: number) =>
+    invoke<string>("enroll_yubikey", { password, slot }),
+
+  // Disable the YubiKey second factor (requires password + inserted YubiKey).
+  disableYubikey: (password: string) =>
+    invoke<string>("disable_yubikey", { password }),
 
   generateKey: (keyType: string, purpose: number, account: number, index: number) =>
     invoke<KeyEntry>("generate_key", {
