@@ -3,6 +3,7 @@ use ml_dsa::{Keypair, KeyExport};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Debug, Error)]
 pub enum ThresholdError {
@@ -30,9 +31,11 @@ pub struct ThresholdSignature {
     pub algorithm: String,
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct ThresholdSigner {
     secret_key: SecretKey,
     public_key: PublicKey,
+    #[zeroize(skip)]
     threshold: usize,
 }
 
@@ -146,6 +149,15 @@ impl ThresholdSigner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroize;
+
+    #[test]
+    fn test_threshold_signer_zeroize_clears_secret() {
+        let mut signer = ThresholdSigner::generate(2).unwrap();
+        assert!(!signer.secret_key.as_bytes().is_empty());
+        signer.zeroize();
+        assert!(signer.secret_key.as_bytes().is_empty());
+    }
 
     #[test]
     fn test_create_and_verify_share() {

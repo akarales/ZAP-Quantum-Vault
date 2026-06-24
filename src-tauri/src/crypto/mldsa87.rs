@@ -5,7 +5,7 @@ use ml_dsa::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const PUBLIC_KEY_SIZE: usize = 2592;
 pub const SEED_SIZE: usize = 32;
@@ -26,7 +26,7 @@ pub enum CryptoError {
 #[derive(Debug, Clone, Serialize, Deserialize, Zeroize)]
 pub struct PublicKey(pub Vec<u8>);
 
-#[derive(Debug, Clone, Serialize, Deserialize, Zeroize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct SecretKey(pub Vec<u8>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

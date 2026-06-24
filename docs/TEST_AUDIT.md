@@ -45,19 +45,19 @@ This document provides a comprehensive reference for the testing strategy, test 
 
 | Module | File | Test Count | Coverage |
 |--------|------|------------|----------|
-| ML-DSA-87 | `src/crypto/mldsa87.rs` | 7 | Keygen, sign/verify, wrong key, deterministic |
-| ML-KEM-1024 | `src/crypto/mlkem1024.rs` | 7 | Keygen, roundtrip, unique keys, sizes, errors |
+| ML-DSA-87 | `src/crypto/mldsa87.rs` | 8 | Keygen, sign/verify, wrong key, deterministic, secret zeroize |
+| ML-KEM-1024 | `src/crypto/mlkem1024.rs` | 8 | Keygen, roundtrip, unique keys, sizes, errors, secret zeroize |
 | Encryption | `src/crypto/encryption.rs` | 8 | Encrypt/decrypt, nonce uniqueness, wrong key |
 | KDF | `src/crypto/kdf.rs` | 7 | Determinism, different passwords/salts, domains |
 | Mnemonic | `src/crypto/mnemonic.rs` | 6 | Generation, validation, seed, invalid words |
 | HD Derivation | `src/crypto/hd_derivation.rs` | 5 | Parse, hardened, deterministic, different paths |
 | Address | `src/crypto/address.rs` | 3 | Starts with zap1, deterministic, unique |
 | Hash | `src/crypto/hash.rs` | 5 | Deterministic, different data, hex length |
-| VRF | `src/crypto/vrf.rs` | 8 | Deterministic, different inputs/keys, verify, tamper |
-| Hybrid Signing | `src/crypto/hybrid_signing.rs` | 7 | Sign/verify, wrong message, tamper, algorithm label |
-| Threshold | `src/crypto/threshold.rs` | 7 | Create/verify share, aggregate, insufficient, duplicate |
+| VRF | `src/crypto/vrf.rs` | 9 | Deterministic, different inputs/keys, verify, tamper, secret zeroize |
+| Hybrid Signing | `src/crypto/hybrid_signing.rs` | 8 | Sign/verify, wrong message, tamper, algorithm label, secret zeroize |
+| Threshold | `src/crypto/threshold.rs` | 8 | Create/verify share, aggregate, insufficient, duplicate, secret zeroize |
 | Proof Batch | `src/crypto/proof_batch.rs` | 6 | Single, multiple, empty, tampered root/proof, power of 2 |
-| **Total Unit** | | **76** | |
+| **Total Unit** | | **81** | |
 
 ### 2.2 Edge Case Tests (`tests/crypto_edge_cases.rs`)
 
@@ -88,18 +88,36 @@ This document provides a comprehensive reference for the testing strategy, test 
 | Mnemonic + HD | 3 | Mnemonic to seed to derivation, multiple paths, recovery |
 | Full Workflow | 2 | Complete create→unlock→generate→sign, multiple accounts |
 | Vault + Key + Encrypt | 1 | Encrypt/decrypt key material with vault key |
-| **Total E2E** | | **31** |
+| Encrypted Keystore Persistence | 6 | Roundtrip, empty, wrong key, not-plaintext, tampered blob, unique nonce |
+| Password Change | 5 | Unlock with new pw, wrong-old rejected, before-create rejected, keystore re-key, fresh-salt verifier |
+| IPC Secret Redaction | 2 | Public view omits secret, list has no secrets |
+| Generation-based Persistence | 3 | Legacy keys_file default, keys_file roundtrip, new-generation re-key file |
+| Session Key Zeroization | 2 | `Zeroizing` session-key roundtrip, clears-on-drop contract |
+| Air-Gap Replay Protection | 10 | Valid verify, tampered payload/timestamp/nonce/type, expired, future, wrong version, replay nonce, distinct nonces |
+| Unlock Rate Limiting | 4 | Under-threshold allowed, locks after threshold, backoff grows/caps, success resets |
+| File Permissions (Unix) | 2 | New file is `0600`, overwrite keeps `0600` |
+| **Total E2E** | | **64** (cargo-reported) |
 
 ### 2.4 Grand Total
 
-| Suite | Count |
+| Suite | Count (cargo-reported) |
 |-------|-------|
-| Unit Tests | 76 |
-| Edge Case Tests | 118 |
-| E2E Integration Tests | 31 |
-| **Grand Total** | **225** |
+| Unit Tests (lib) | 83 |
+| Edge Case Tests | 121 |
+| E2E Integration Tests | 64 |
+| **Grand Total** | **268** |
 
-**All 225 tests passing. 0 warnings. 0 failures.**
+**All 268 tests passing. 0 warnings. 0 failures.**
+
+> **2026-06-23 update:** +11 E2E tests added for encrypted keystore persistence (`keys.enc`) and the `change_password` re-key flow, then +5 more for IPC secret redaction (`KeyEntryPublic`) and generation-based crash-atomic re-key. Counts reflect actual `cargo test` binary totals.
+>
+> **2026-06-24 update:** +5 unit tests for secret zeroization-on-drop (`Zeroize`/`ZeroizeOnDrop` on `SecretKey`, `KemKeyPair`, `PqVrf`, `HybridSigner`, `ThresholdSigner`), then +2 E2E tests for session/derived-key zeroization (`SessionKey` now holds `Zeroizing<[u8; 32]>`; derived KDF/encryption keys wrapped in `Zeroizing`), then +2 lib tests for in-memory `KeyEntry` secret zeroization (manual `Drop` + `secret_hex_for` returns `Zeroizing<String>`).
+>
+> **2026-06-24 update (replay + rate limit):** +10 E2E tests for air-gap envelope v2 replay protection (signature binds nonce/timestamp/type; freshness window; nonce replay cache) closing PT-008, and +4 E2E tests for `unlock_vault` exponential-backoff rate limiting. Also fixed a flaky `test_mnemonic_wrong_word_count_rejected` (truncated to a valid 12-word length; now uses an invalid 13-word length).
+>
+> **2026-06-24 update (BIP39 passphrase):** removed the hardcoded BIP39 passphrase from `mnemonic_to_seed` (now standard empty passphrase, interoperable) and added `mnemonic_to_seed_with_passphrase` for an optional user passphrase. +3 lib unit tests including an official Trezor BIP39 test-vector interop check.
+>
+> **2026-06-24 update (file permissions):** `atomic_write` now creates files `0600` and `data_dir` is `0700` on Unix (owner-only), closing A6. +2 Unix-only integration tests. Also removed 2 stale unused imports (`zeroize::Zeroize` in `mldsa87`/`key` test modules); build is now warning-free.
 
 ---
 
@@ -176,14 +194,15 @@ cargo tarpaulin --out html --output-dir coverage/
 
 | ID | Attack Vector | Risk | Status |
 |----|---------------|------|--------|
-| PT-001 | Vault password brute force | HIGH | ❌ Vulnerable (no rate limiting) |
-| PT-002 | Secret key exfiltration via IPC | CRITICAL | ❌ Vulnerable |
+| PT-001 | Vault password brute force | HIGH | ✅ Mitigated (in-memory exponential-backoff lockout; offline bound by Argon2id) |
+| PT-002 | Secret key exfiltration via IPC | CRITICAL | ✅ Mitigated (redacted `KeyEntryPublic`; secrets resolved server-side only) |
 | PT-003 | QR code payload injection | MEDIUM | ⚠️ Partially mitigated |
+| PT-009 | Local file disclosure (other OS users) | LOW | ✅ Mitigated (vault files `0600`, data dir `0700` on Unix) |
 | PT-004 | Vault ciphertext tampering | LOW | ✅ Mitigated |
 | PT-005 | Signature forgery / tamper | LOW | ✅ Mitigated |
 | PT-006 | Threshold signature manipulation | MEDIUM | ✅ Mitigated |
 | PT-007 | Mnemonic brute force | LOW | ✅ Infeasible |
-| PT-008 | QR replay attack | MEDIUM | ❌ Vulnerable |
+| PT-008 | QR replay attack | MEDIUM | ✅ Mitigated (envelope v2: signed nonce/timestamp + freshness + replay cache) |
 
 ---
 
@@ -191,26 +210,27 @@ cargo tarpaulin --out html --output-dir coverage/
 
 ### Phase 1: Critical Fixes (Immediate)
 
-- [ ] Remove `encrypted_secret_hex` from IPC response structs
-- [ ] Add rate limiting to `unlock_vault` (lockout after 10 attempts)
-- [ ] Add `Zeroize` derive to `KemKeyPair`, `HybridSigner`, `ThresholdSigner`, `PqVrf`
-- [ ] Zeroize master key and encryption key in vault commands after use
+- [x] Remove `encrypted_secret_hex` from IPC response structs (redacted `KeyEntryPublic` DTO)
+- [x] Add rate limiting to `unlock_vault` (exponential backoff lockout after 5 attempts)
+- [x] Add `Zeroize`/`ZeroizeOnDrop` derive to `KemKeyPair`, `HybridSigner`, `ThresholdSigner`, `PqVrf`, `SecretKey`
+- [x] Zeroize master key and encryption key in vault commands after use (`Zeroizing` wrapper)
 
 ### Phase 2: High Priority (Before Production)
 
 - [ ] Validate QR payload structure before signing
-- [ ] Add timestamp freshness check to QR envelopes
+- [x] Add timestamp freshness check to QR envelopes (envelope v2: signed nonce/timestamp + freshness window + replay cache)
 - [ ] Add AAD to vault encryption (bind to vault metadata)
 - [ ] Use `subtle::ConstantTimeEq` for vault verifier comparison
 - [ ] Add password length limit (max 1024 bytes) to prevent DoS
 
 ### Phase 3: Hardening (Future)
 
+- [x] Set restrictive permissions on vault files (`0600` files / `0700` data dir, Unix)
 - [ ] Add `cargo-audit` to CI pipeline
 - [ ] Add `cargo-fuzz` targets for crypto modules
 - [ ] Benchmark Argon2id on minimum supported hardware
 - [ ] Implement anti-exfil (DLEQ proof) signing protocol
-- [ ] Add user-configurable BIP39 passphrase
+- [x] Add user-configurable BIP39 passphrase (`mnemonic_to_seed_with_passphrase`; removed hardcoded passphrase)
 - [ ] Implement multisig across devices
 
 ---
@@ -221,21 +241,21 @@ cargo tarpaulin --out html --output-dir coverage/
 src-tauri/
 ├── src/
 │   └── crypto/
-│       ├── mldsa87.rs          # 7 unit tests
-│       ├── mlkem1024.rs        # 7 unit tests
+│       ├── mldsa87.rs          # 8 unit tests
+│       ├── mlkem1024.rs        # 8 unit tests
 │       ├── encryption.rs       # 8 unit tests
 │       ├── kdf.rs              # 7 unit tests
 │       ├── mnemonic.rs         # 6 unit tests
 │       ├── hd_derivation.rs    # 5 unit tests
 │       ├── address.rs          # 3 unit tests
 │       ├── hash.rs             # 5 unit tests
-│       ├── vrf.rs              # 8 unit tests
-│       ├── hybrid_signing.rs   # 7 unit tests
-│       ├── threshold.rs        # 7 unit tests
+│       ├── vrf.rs              # 9 unit tests
+│       ├── hybrid_signing.rs   # 8 unit tests
+│       ├── threshold.rs        # 8 unit tests
 │       └── proof_batch.rs      # 6 unit tests
 ├── tests/
 │   ├── crypto_edge_cases.rs    # 118 edge case tests
-│   └── e2e_integration.rs      # 31 E2E integration tests
+│   └── e2e_integration.rs      # 64 E2E integration tests
 └── docs/
     ├── SECURITY_AUDIT.md       # Full security audit report
     ├── PENETRATION_TESTING.md  # Full penetration test report

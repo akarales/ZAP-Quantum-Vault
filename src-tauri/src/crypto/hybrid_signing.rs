@@ -4,6 +4,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Debug, Error)]
 pub enum HybridSigningError {
@@ -28,6 +29,7 @@ pub struct HybridSignature {
     pub algorithm: String,
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HybridSigner {
     primary_secret: SecretKey,
     primary_public: PublicKey,
@@ -133,6 +135,16 @@ impl HybridSigner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroize;
+
+    #[test]
+    fn test_hybrid_signer_zeroize_clears_secrets() {
+        let mut signer = HybridSigner::generate().unwrap();
+        assert!(!signer.primary_secret.as_bytes().is_empty());
+        signer.zeroize();
+        assert!(signer.primary_secret.as_bytes().is_empty());
+        assert_eq!(signer.secondary_secret, [0u8; 32]);
+    }
 
     #[test]
     fn test_hybrid_sign_and_verify() {

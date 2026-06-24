@@ -3,8 +3,9 @@ pub mod crypto;
 pub mod error;
 pub mod models;
 
-use commands::vault::VaultMutex;
-use commands::keys::KeyStore;
+use commands::vault::{VaultMutex, UnlockState};
+use commands::keys::{KeyStore, SessionKey};
+use commands::airgap::SeenNonces;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -26,17 +27,25 @@ pub fn run() {
         })
         .manage(VaultMutex(Mutex::new(models::vault::VaultState::default())))
         .manage(KeyStore(Mutex::new(Vec::new())))
+        .manage(SessionKey(Mutex::new(None)))
+        .manage(SeenNonces::default())
+        .manage(UnlockState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::vault::vault_status,
             commands::vault::create_vault,
             commands::vault::unlock_vault,
+            commands::vault::change_password,
             commands::vault::lock_vault,
             commands::keys::generate_key,
             commands::keys::list_keys,
             commands::keys::get_key_detail,
             commands::signing::sign_message,
+            commands::signing::sign_message_with_key,
             commands::signing::verify_message,
             commands::airgap::generate_qr,
+            commands::airgap::generate_qr_with_key,
             commands::airgap::parse_qr,
+            commands::airgap::verify_qr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

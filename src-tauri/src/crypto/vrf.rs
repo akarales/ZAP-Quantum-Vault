@@ -2,6 +2,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Debug, Error)]
 pub enum VrfError {
@@ -23,6 +24,7 @@ pub struct VrfOutput {
     pub proof: VrfProof,
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct PqVrf {
     pub secret_key: [u8; 32],
     public_key: [u8; 32],
@@ -93,6 +95,15 @@ impl PqVrf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroize;
+
+    #[test]
+    fn test_vrf_zeroize_clears_secret() {
+        let mut vrf = PqVrf::from_secret([0x42u8; 32]);
+        assert_eq!(vrf.secret_key, [0x42u8; 32]);
+        vrf.zeroize();
+        assert_eq!(vrf.secret_key, [0u8; 32]);
+    }
 
     #[test]
     fn test_vrf_deterministic() {

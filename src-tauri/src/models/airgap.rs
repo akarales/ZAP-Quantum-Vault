@@ -7,6 +7,18 @@ pub enum TransferType {
     EncryptedKey,
 }
 
+impl TransferType {
+    /// Stable single-byte tag used when binding the transfer type into the
+    /// envelope's signed message. Must never be reordered/reused.
+    pub fn tag(&self) -> u8 {
+        match self {
+            TransferType::UnsignedTx => 1,
+            TransferType::SignedTx => 2,
+            TransferType::EncryptedKey => 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirGapEnvelope {
     pub version: u32,

@@ -454,7 +454,10 @@ fn test_mnemonic_partial_mnemonic_rejected() {
 fn test_mnemonic_wrong_word_count_rejected() {
     let m = mnemonic::generate_mnemonic();
     let words: Vec<&str> = m.split_whitespace().collect();
-    let truncated = words[..12].join(" ");
+    // 13 words is not a valid BIP39 length (valid: 12/15/18/21/24), so this is
+    // always rejected on length alone. (Truncating to 12 would be a *valid*
+    // length and only fail on the checksum ~15/16 of the time -> flaky.)
+    let truncated = words[..13].join(" ");
     assert!(mnemonic::validate_mnemonic(&truncated).is_err());
 }
 

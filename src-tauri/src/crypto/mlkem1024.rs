@@ -6,6 +6,7 @@ use ml_kem::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const ENCAPSULATION_KEY_SIZE: usize = 1568;
 pub const DECAPSULATION_SEED_SIZE: usize = 64;
@@ -26,7 +27,7 @@ pub enum KemError {
     KeyDecodeError(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct KemKeyPair {
     pub encapsulation_key: Vec<u8>,
     pub decapsulation_seed: Vec<u8>,
@@ -121,12 +122,22 @@ impl KemKeyPair {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroize;
 
     #[test]
     fn test_keypair_generation() {
         let kp = KemKeyPair::generate();
         assert_eq!(kp.encapsulation_key.len(), ENCAPSULATION_KEY_SIZE);
         assert_eq!(kp.decapsulation_seed.len(), DECAPSULATION_SEED_SIZE);
+    }
+
+    #[test]
+    fn test_keypair_zeroize_clears_secret() {
+        let mut kp = KemKeyPair::generate();
+        assert!(!kp.decapsulation_seed.is_empty());
+        kp.zeroize();
+        assert!(kp.decapsulation_seed.is_empty());
+        assert!(kp.encapsulation_key.is_empty());
     }
 
     #[test]

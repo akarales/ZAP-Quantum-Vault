@@ -18,6 +18,8 @@ pub enum VaultError {
     AlreadyUnlocked,
     #[error("invalid password")]
     InvalidPassword,
+    #[error("too many failed unlock attempts; try again in {0} seconds")]
+    TooManyAttempts(u64),
     #[error("key not found: {0}")]
     KeyNotFound(String),
     #[error("key already exists: {0}")]
