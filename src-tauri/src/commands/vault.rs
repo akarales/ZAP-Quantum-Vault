@@ -105,6 +105,90 @@ fn load_vault_if_needed(app: &AppHandle, vault: &mut VaultState) {
     }
 }
 
+/// Derive the vault encryption key from the password, transparently mixing in
+/// the YubiKey HMAC-SHA1 response when the vault has a YubiKey enrolled. This is
+/// the single place that knows how a vault's key material is derived, so unlock,
+/// change-password and (dis)enrollment all stay consistent.
+fn derive_vault_enc_key(
+    vault: &VaultState,
+    password: &str,
+) -> Result<Zeroizing<[u8; kdf::MASTER_KEY_SIZE]>> {
+    let salt = hex::decode(&vault.salt_hex).map_err(|e| VaultError::Storage(e.to_string()))?;
+    let response = if vault.yubikey_enabled {
+        let challenge = hex::decode(&vault.yubikey_challenge_hex)
+            .map_err(|e| VaultError::Storage(e.to_string()))?;
+        Some(crate::commands::yubikey::respond(vault.yubikey_slot, &challenge)?)
+    } else {
+        None
+    };
+    let master = Zeroizing::new(kdf::derive_master_key_with_factor(
+        password.as_bytes(),
+        response.as_deref(),
+        &salt,
+    )?);
+    Ok(Zeroizing::new(kdf::derive_encryption_key(&master, "vault_encryption")))
+}
+
+/// Decrypt the stored verifier with `enc_key` and confirm it matches the known
+/// plaintext. Returns `Ok(())` on success, [`VaultError::InvalidPassword`] otherwise.
+fn verify_enc_key(vault: &VaultState, enc_key: &[u8; 32]) -> Result<()> {
+    let parts: Vec<&str> = vault.verifier_hash_hex.split(':').collect();
+    if parts.len() != 2 {
+        return Err(VaultError::InvalidPassword);
+    }
+    let nonce = hex::decode(parts[0]).map_err(|e| VaultError::Storage(e.to_string()))?;
+    let ciphertext = hex::decode(parts[1]).map_err(|e| VaultError::Storage(e.to_string()))?;
+    let ct = encryption::Ciphertext { nonce, ciphertext };
+    match encryption::decrypt_vault(enc_key, &ct) {
+        Ok(decrypted) if decrypted == b"ZAP_VAULT_VERIFIER" => Ok(()),
+        _ => Err(VaultError::InvalidPassword),
+    }
+}
+
+/// Re-encrypt the keystore and verifier under `new_enc`, writing to a fresh
+/// generation file and committing the (already-mutated) `vault` metadata in a
+/// single atomic step. The old keystore is left intact until the commit, then
+/// cleaned up. Used by change-password and YubiKey (dis)enrollment.
+///
+/// Caller must set `vault.salt_hex` (and any YubiKey fields) before calling.
+fn rekey_vault(
+    app: &AppHandle,
+    vault: &mut VaultState,
+    old_enc: &[u8; 32],
+    new_enc: Zeroizing<[u8; 32]>,
+    keystore: &State<'_, KeyStore>,
+    session: &State<'_, SessionKey>,
+) -> Result<()> {
+    // Read the keystore using the old key (disk is authoritative).
+    let old_keys_file = vault.keys_file.clone();
+    let entries = load_keys(app, &old_keys_file, old_enc)?;
+
+    // Write the re-encrypted keystore to a NEW generation file; the live file is
+    // untouched so the vault stays readable with the old key until we commit.
+    let new_keys_file = format!("keys-{}.enc", uuid::Uuid::new_v4());
+    save_keys(app, &new_keys_file, &new_enc, &entries)?;
+
+    // COMMIT: atomically write vault.json pointing at the new verifier/keystore.
+    let verifier = b"ZAP_VAULT_VERIFIER";
+    let new_ct = encryption::encrypt_vault(&new_enc, verifier)
+        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    vault.verifier_hash_hex = hex::encode(new_ct.nonce) + ":" + &hex::encode(new_ct.ciphertext);
+    vault.keys_file = new_keys_file;
+    persist_vault(app, vault)?;
+
+    // Best-effort cleanup of the now-orphaned old keystore file.
+    if old_keys_file != vault.keys_file {
+        if let Ok(old_path) = keys_file_path(app, &old_keys_file) {
+            let _ = std::fs::remove_file(old_path);
+        }
+    }
+
+    // Refresh the in-memory session.
+    *keystore.0.lock().unwrap() = entries;
+    *session.0.lock().unwrap() = Some(new_enc);
+    Ok(())
+}
+
 /// Returns whether a vault has already been created on this machine.
 /// The frontend uses this to decide between the "create vault" and
 /// "unlock vault" experiences on first load.
@@ -116,6 +200,28 @@ pub fn vault_status(
     let mut vault = state.0.lock().unwrap();
     load_vault_if_needed(&app, &mut vault);
     Ok(vault.initialized)
+}
+
+/// Current YubiKey enrollment state for the vault, surfaced to the frontend so
+/// the Settings UI can show enroll vs. disable, and the unlock screen can prompt
+/// the user to insert their key.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct YubiKeyStatus {
+    pub enabled: bool,
+    pub slot: u8,
+}
+
+#[tauri::command]
+pub fn yubikey_status(
+    app: AppHandle,
+    state: State<'_, VaultMutex>,
+) -> Result<YubiKeyStatus> {
+    let mut vault = state.0.lock().unwrap();
+    load_vault_if_needed(&app, &mut vault);
+    Ok(YubiKeyStatus {
+        enabled: vault.yubikey_enabled,
+        slot: vault.yubikey_slot,
+    })
 }
 
 #[tauri::command]
@@ -172,32 +278,20 @@ pub fn unlock_vault(
         return Err(VaultError::NotInitialized);
     }
 
-    let salt = hex::decode(&vault.salt_hex)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
-    let master_key = Zeroizing::new(kdf::derive_master_key(password.as_bytes(), &salt)?);
-    let enc_key = Zeroizing::new(kdf::derive_encryption_key(&master_key, "vault_encryption"));
+    // Derive the encryption key (folding in the YubiKey response if enrolled).
+    let enc_key = derive_vault_enc_key(&vault, &password)?;
 
-    let parts: Vec<&str> = vault.verifier_hash_hex.split(':').collect();
-    if parts.len() != 2 {
-        throttle.0.lock().unwrap().record_failure(now);
-        return Err(VaultError::InvalidPassword);
-    }
-
-    let nonce = hex::decode(parts[0]).map_err(|e| VaultError::Storage(e.to_string()))?;
-    let ciphertext = hex::decode(parts[1]).map_err(|e| VaultError::Storage(e.to_string()))?;
-
-    let ct = encryption::Ciphertext { nonce, ciphertext };
-    match encryption::decrypt_vault(&enc_key, &ct) {
-        Ok(decrypted) if decrypted == b"ZAP_VAULT_VERIFIER" => {
-            // Password is correct: clear the throttle, load the keystore, then
-            // open the session. The keystore is loaded before `enc_key` is moved.
+    match verify_enc_key(&vault, &enc_key) {
+        Ok(()) => {
+            // Password (and YubiKey, if enrolled) correct: clear the throttle,
+            // load the keystore, then open the session.
             throttle.0.lock().unwrap().record_success();
             let entries = load_keys(&app, &vault.keys_file, &enc_key)?;
             *keystore.0.lock().unwrap() = entries;
             *session.0.lock().unwrap() = Some(enc_key);
             Ok(true)
         }
-        _ => {
+        Err(_) => {
             throttle.0.lock().unwrap().record_failure(now);
             Err(VaultError::InvalidPassword)
         }
@@ -222,63 +316,100 @@ pub fn change_password(
         return Err(VaultError::NotInitialized);
     }
 
-    // 1. Verify the old password by decrypting the existing verifier.
-    let old_salt = hex::decode(&vault.salt_hex)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
-    let old_master = kdf::derive_master_key(old_password.as_bytes(), &old_salt)?;
-    let old_enc = kdf::derive_encryption_key(&old_master, "vault_encryption");
+    // 1. Verify the old password (folding in the YubiKey response if enrolled).
+    let old_enc = derive_vault_enc_key(&vault, &old_password)?;
+    verify_enc_key(&vault, &old_enc)?;
 
-    let parts: Vec<&str> = vault.verifier_hash_hex.split(':').collect();
-    if parts.len() != 2 {
-        return Err(VaultError::InvalidPassword);
-    }
-    let nonce = hex::decode(parts[0]).map_err(|e| VaultError::Storage(e.to_string()))?;
-    let ciphertext = hex::decode(parts[1]).map_err(|e| VaultError::Storage(e.to_string()))?;
-    let old_ct = encryption::Ciphertext { nonce, ciphertext };
-    match encryption::decrypt_vault(&old_enc, &old_ct) {
-        Ok(decrypted) if decrypted == b"ZAP_VAULT_VERIFIER" => {}
-        _ => return Err(VaultError::InvalidPassword),
-    }
-
-    // 2. Read the keystore using the old key (disk is authoritative).
-    let old_keys_file = vault.keys_file.clone();
-    let entries = load_keys(&app, &old_keys_file, &old_enc)?;
-
-    // 3. Derive new key material from a fresh salt.
+    // 2. Derive new key material from a fresh salt. The YubiKey factor (if any)
+    //    is unchanged, so the same challenge/slot still apply to the new salt.
     let new_salt = kdf::generate_salt();
-    let new_master = Zeroizing::new(kdf::derive_master_key(new_password.as_bytes(), &new_salt)?);
-    let new_enc = Zeroizing::new(kdf::derive_encryption_key(&new_master, "vault_encryption"));
-
-    // 4. Write the re-encrypted keystore to a NEW generation file. The live
-    //    keystore (old_keys_file) is left untouched, so until we commit below
-    //    the vault is still fully readable with the old password.
-    let new_keys_file = format!("keys-{}.enc", uuid::Uuid::new_v4());
-    save_keys(&app, &new_keys_file, &new_enc, &entries)?;
-
-    // 5. COMMIT: atomically write vault.json pointing at the new salt,
-    //    verifier, and keystore file. This single atomic rename is the only
-    //    point at which the change takes effect. A crash before this leaves the
-    //    old vault intact; a crash after leaves a fully consistent new vault.
-    let verifier = b"ZAP_VAULT_VERIFIER";
-    let new_ct = encryption::encrypt_vault(&new_enc, verifier)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
     vault.salt_hex = hex::encode(new_salt);
-    vault.verifier_hash_hex = hex::encode(new_ct.nonce) + ":" + &hex::encode(new_ct.ciphertext);
-    vault.keys_file = new_keys_file;
-    persist_vault(&app, &vault)?;
+    let new_enc = derive_vault_enc_key(&vault, &new_password)?;
 
-    // 6. Best-effort cleanup of the now-orphaned old keystore file.
-    if old_keys_file != vault.keys_file {
-        if let Ok(old_path) = keys_file_path(&app, &old_keys_file) {
-            let _ = std::fs::remove_file(old_path);
-        }
-    }
-
-    // 7. Refresh the in-memory session.
-    *keystore.0.lock().unwrap() = entries;
-    *session.0.lock().unwrap() = Some(new_enc);
+    // 3. Re-encrypt the keystore + verifier and atomically commit.
+    rekey_vault(&app, &mut vault, &old_enc, new_enc, &keystore, &session)?;
 
     Ok("Password changed successfully".to_string())
+}
+
+/// Enroll a YubiKey as a second factor. Verifies the current (password-only)
+/// vault, then re-keys it so the master key derivation also requires the
+/// YubiKey's HMAC-SHA1 response to a freshly generated challenge.
+#[tauri::command]
+pub fn enroll_yubikey(
+    app: AppHandle,
+    password: String,
+    slot: u8,
+    state: State<'_, VaultMutex>,
+    keystore: State<'_, KeyStore>,
+    session: State<'_, SessionKey>,
+) -> Result<String> {
+    let mut vault = state.0.lock().unwrap();
+    load_vault_if_needed(&app, &mut vault);
+    if !vault.initialized {
+        return Err(VaultError::NotInitialized);
+    }
+    if vault.yubikey_enabled {
+        return Err(VaultError::YubiKeyAlreadyEnrolled);
+    }
+
+    // 1. Verify the current password (no factor yet).
+    let old_enc = derive_vault_enc_key(&vault, &password)?;
+    verify_enc_key(&vault, &old_enc)?;
+
+    // 2. Generate a fresh challenge and confirm the YubiKey can respond now,
+    //    before we commit anything (so a missing/failing key aborts cleanly).
+    let challenge = crate::commands::yubikey::generate_challenge();
+    crate::commands::yubikey::respond(slot, &challenge)?;
+
+    // 3. Stage the new YubiKey metadata + fresh salt, then derive the new key.
+    let new_salt = kdf::generate_salt();
+    vault.salt_hex = hex::encode(new_salt);
+    vault.yubikey_enabled = true;
+    vault.yubikey_slot = slot;
+    vault.yubikey_challenge_hex = hex::encode(challenge);
+    let new_enc = derive_vault_enc_key(&vault, &password)?;
+
+    // 4. Re-encrypt + atomically commit.
+    rekey_vault(&app, &mut vault, &old_enc, new_enc, &keystore, &session)?;
+
+    Ok("YubiKey enrolled successfully".to_string())
+}
+
+/// Disable the YubiKey second factor. Verifies the current (password + YubiKey)
+/// vault, then re-keys it back to password-only.
+#[tauri::command]
+pub fn disable_yubikey(
+    app: AppHandle,
+    password: String,
+    state: State<'_, VaultMutex>,
+    keystore: State<'_, KeyStore>,
+    session: State<'_, SessionKey>,
+) -> Result<String> {
+    let mut vault = state.0.lock().unwrap();
+    load_vault_if_needed(&app, &mut vault);
+    if !vault.initialized {
+        return Err(VaultError::NotInitialized);
+    }
+    if !vault.yubikey_enabled {
+        return Err(VaultError::YubiKeyNotEnrolled);
+    }
+
+    // 1. Verify with the current factor (password + YubiKey response).
+    let old_enc = derive_vault_enc_key(&vault, &password)?;
+    verify_enc_key(&vault, &old_enc)?;
+
+    // 2. Stage password-only metadata + fresh salt, then derive the new key.
+    let new_salt = kdf::generate_salt();
+    vault.salt_hex = hex::encode(new_salt);
+    vault.yubikey_enabled = false;
+    vault.yubikey_challenge_hex = String::new();
+    let new_enc = derive_vault_enc_key(&vault, &password)?;
+
+    // 3. Re-encrypt + atomically commit.
+    rekey_vault(&app, &mut vault, &old_enc, new_enc, &keystore, &session)?;
+
+    Ok("YubiKey disabled successfully".to_string())
 }
 
 #[tauri::command]

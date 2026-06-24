@@ -35,3 +35,9 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
+# YubiKey HMAC-SHA1 challenge-response (2FA factor mixed into the KDF).
+# Pure-Rust `nusb` backend avoids a system libusb dependency on Linux/macOS.
+challenge_response = { version = "0", default-features = false, features = ["nusb"] }
+# Direct USB access used only to read the YubiKey OTP status report so we can
+# detect which slots are programmed (and whether they require touch).
+nusb = "0.2"

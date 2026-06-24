@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Shield, Lock, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
+import { Shield, Lock, Eye, EyeOff, ArrowRight, Loader2, Usb } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuthStore } from "@/store/authStore";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -34,6 +35,8 @@ export function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
+  const [yubikeyEnabled, setYubikeyEnabled] = useState(false);
+
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const statusChecked = useAuthStore((s) => s.statusChecked);
   const loading = useAuthStore((s) => s.loading);
@@ -46,6 +49,16 @@ export function AuthPage() {
   useEffect(() => {
     checkStatus();
   }, [checkStatus]);
+
+  // Once we know a vault exists, find out whether a YubiKey is required so we
+  // can prompt the user to insert (and touch) it before unlocking.
+  useEffect(() => {
+    if (!isInitialized) return;
+    api
+      .yubikeyStatus()
+      .then((s) => setYubikeyEnabled(s.enabled))
+      .catch(() => setYubikeyEnabled(false));
+  }, [isInitialized]);
 
   const strength = useMemo(() => evaluatePassword(password), [password]);
   const passwordsMatch = password === confirmPassword;
@@ -122,6 +135,17 @@ export function AuthPage() {
               className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
             >
               {error}
+            </motion.div>
+          )}
+
+          {isInitialized && yubikeyEnabled && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mb-4 flex items-center gap-2.5 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 text-sm text-primary"
+            >
+              <Usb className="h-4 w-4 shrink-0" />
+              <span>Insert your YubiKey and touch it when it blinks to unlock.</span>
             </motion.div>
           )}
 

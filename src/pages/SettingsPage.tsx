@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
+import { YubiKeyCard } from "@/components/settings/YubiKeyCard";
 
 export function SettingsPage() {
   const settingsGroups = [
@@ -61,6 +62,10 @@ export function SettingsPage() {
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
         <ChangePasswordCard />
+      </motion.div>
+
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
+        <YubiKeyCard />
       </motion.div>
 
       {settingsGroups.map((group, gi) => (
