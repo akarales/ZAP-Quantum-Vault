@@ -40,6 +40,8 @@ pub fn run() {
             commands::vault::enroll_yubikey,
             commands::vault::disable_yubikey,
             commands::vault::verify_yubikey_backup,
+            commands::vault::yk_program_hmac,
+            commands::vault::yk_erase_slot,
             commands::yubikey::detect_yubikey,
             commands::keys::generate_key,
             commands::keys::list_keys,

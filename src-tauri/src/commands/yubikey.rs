@@ -187,6 +187,78 @@ pub fn respond(slot: u8, challenge: &[u8]) -> Result<Vec<u8>> {
     Ok(hmac.deref().to_vec())
 }
 
+/// Size of the HMAC-SHA1 secret a slot is programmed with, in bytes.
+pub const HMAC_SECRET_SIZE: usize = 20;
+
+/// Abstraction over programming a hardware token's HMAC-SHA1 slot. Implemented
+/// for USB on desktop ([`UsbProgrammer`]); a future mobile NFC backend can
+/// provide its own implementation behind this same trait.
+pub trait YubiKeyProgrammer {
+    /// Program `slot` for HMAC-SHA1 challenge-response with `secret`.
+    /// `require_touch` makes each response require a physical button press.
+    fn program_hmac(&mut self, slot: u8, secret: &[u8; HMAC_SECRET_SIZE], require_touch: bool) -> Result<()>;
+    /// Erase (format) `slot`, removing any credential programmed in it.
+    fn erase_slot(&mut self, slot: u8) -> Result<()>;
+}
+
+/// Map a 1/2 slot number to the crate's slot-config write command.
+#[cfg(not(test))]
+fn slot_command(slot: u8) -> challenge_response::config::Command {
+    use challenge_response::config::Command;
+    match slot {
+        1 => Command::Configuration1,
+        _ => Command::Configuration2,
+    }
+}
+
+/// Program a slot for HMAC-SHA1 challenge-response. Native USB HID write via the
+/// `challenge_response` crate's `write_config` — no external tools required.
+/// Desktop-only: the underlying USB backend is not available on mobile targets.
+#[cfg(not(test))]
+pub fn program_hmac_slot(slot: u8, secret: &[u8; HMAC_SECRET_SIZE], require_touch: bool) -> Result<()> {
+    use challenge_response::config::Config;
+    use challenge_response::configure::DeviceModeConfig;
+    use challenge_response::hmacmode::HmacKey;
+    use challenge_response::ChallengeResponse;
+
+    let mut cr = ChallengeResponse::new().map_err(|e| VaultError::YubiKey(e.to_string()))?;
+    let device = cr.find_device().map_err(|_| VaultError::YubiKeyNotFound)?;
+    let conf = Config::new_from(device).set_command(slot_command(slot));
+
+    let mut device_config = DeviceModeConfig::default();
+    let key = HmacKey::from_slice(secret);
+    // variable=true allows challenges up to 63 bytes (matches how we issue them).
+    device_config.challenge_response_hmac(&key, true, require_touch);
+
+    cr.write_config(conf, &mut device_config)
+        .map_err(|e| VaultError::YubiKey(e.to_string()))
+}
+
+/// Erase a slot by writing an empty (all-zero) configuration, which the device
+/// interprets as a delete. Desktop-only.
+#[cfg(not(test))]
+pub fn erase_slot(slot: u8) -> Result<()> {
+    use challenge_response::config::Config;
+    use challenge_response::configure::DeviceModeConfig;
+    use challenge_response::ChallengeResponse;
+
+    let mut cr = ChallengeResponse::new().map_err(|e| VaultError::YubiKey(e.to_string()))?;
+    let device = cr.find_device().map_err(|_| VaultError::YubiKeyNotFound)?;
+    let conf = Config::new_from(device).set_command(slot_command(slot));
+
+    let mut device_config = DeviceModeConfig::default();
+    cr.write_config(conf, &mut device_config)
+        .map_err(|e| VaultError::YubiKey(e.to_string()))
+}
+
+/// Generate a fresh random 20-byte HMAC-SHA1 secret to program into a slot.
+pub fn generate_hmac_secret() -> [u8; HMAC_SECRET_SIZE] {
+    use rand::RngCore;
+    let mut secret = [0u8; HMAC_SECRET_SIZE];
+    rand::rngs::OsRng.fill_bytes(&mut secret);
+    secret
+}
+
 /// Test build stub: no USB hardware is touched in unit tests.
 #[cfg(test)]
 pub fn detect() -> Result<YubiKeyInfo> {
@@ -199,12 +271,36 @@ pub fn respond(_slot: u8, _challenge: &[u8]) -> Result<Vec<u8>> {
     Err(VaultError::YubiKeyNotFound)
 }
 
+/// Test build stub: no USB hardware is touched in unit tests.
+#[cfg(test)]
+pub fn program_hmac_slot(_slot: u8, _secret: &[u8; HMAC_SECRET_SIZE], _require_touch: bool) -> Result<()> {
+    Err(VaultError::YubiKeyNotFound)
+}
+
+/// Test build stub: no USB hardware is touched in unit tests.
+#[cfg(test)]
+pub fn erase_slot(_slot: u8) -> Result<()> {
+    Err(VaultError::YubiKeyNotFound)
+}
+
 /// Production [`ChallengeResponder`] backed by a real USB YubiKey.
 pub struct UsbResponder;
 
 impl ChallengeResponder for UsbResponder {
     fn challenge_response(&mut self, slot: u8, challenge: &[u8]) -> Result<Vec<u8>> {
         respond(slot, challenge)
+    }
+}
+
+/// Production [`YubiKeyProgrammer`] backed by a real USB YubiKey (desktop).
+pub struct UsbProgrammer;
+
+impl YubiKeyProgrammer for UsbProgrammer {
+    fn program_hmac(&mut self, slot: u8, secret: &[u8; HMAC_SECRET_SIZE], require_touch: bool) -> Result<()> {
+        program_hmac_slot(slot, secret, require_touch)
+    }
+    fn erase_slot(&mut self, slot: u8) -> Result<()> {
+        erase_slot(slot)
     }
 }
 

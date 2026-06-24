@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
 import { api, type SlotInfo } from "@/lib/api";
+
+const BACKUP_VERIFIED_KEY = "yubikey-backup-verified";
 
 function PasswordField({
   label,
@@ -54,6 +57,9 @@ export function YubiKeyCard() {
   const [slots, setSlots] = useState<SlotInfo[]>([]);
   const [detectedName, setDetectedName] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [backupVerified, setBackupVerified] = useState(
+    () => typeof window !== "undefined" && localStorage.getItem(BACKUP_VERIFIED_KEY) === "true"
+  );
 
   const refreshStatus = async () => {
     try {
@@ -143,6 +149,8 @@ export function YubiKeyCard() {
       await api.disableYubikey(password);
       toast.success("YubiKey disabled. The vault now unlocks with password only.");
       setPassword("");
+      setBackupVerified(false);
+      localStorage.removeItem(BACKUP_VERIFIED_KEY);
       await refreshStatus();
     } catch (err) {
       toast.error(String(err));
@@ -155,6 +163,8 @@ export function YubiKeyCard() {
     setLoading(true);
     try {
       await api.verifyYubikeyBackup(password);
+      setBackupVerified(true);
+      localStorage.setItem(BACKUP_VERIFIED_KEY, "true");
       toast.success("This key works — it is a valid backup for the vault.");
     } catch (err) {
       toast.error(String(err));
@@ -177,6 +187,49 @@ export function YubiKeyCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="glass grid grid-cols-2 gap-3 rounded-xl p-3">
+          {[
+            {
+              label: "Primary Key",
+              active: enabled,
+              sub: enabled ? `Enrolled · slot ${slot}` : "Not enrolled",
+            },
+            {
+              label: "Backup Key",
+              active: enabled && backupVerified,
+              sub: !enabled ? "—" : backupVerified ? "Verified" : "Not verified",
+            },
+          ].map((k) => (
+            <div
+              key={k.label}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+                k.active ? "border-primary/40 bg-primary/5" : "border-border/40"
+              )}
+            >
+              <div
+                className={cn(
+                  "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                  k.active
+                    ? "bg-primary/15 text-primary glow-primary"
+                    : "bg-muted/40 text-muted-foreground"
+                )}
+              >
+                <KeyRound className="h-5 w-5" />
+                {k.active && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary animate-pulse-glow" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium leading-tight">{k.label}</p>
+                <p className={cn("text-xs", k.active ? "text-primary" : "text-muted-foreground")}>
+                  {k.sub}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
         <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <p className="text-xs text-muted-foreground">

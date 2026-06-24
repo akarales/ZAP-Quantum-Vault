@@ -5,6 +5,11 @@
 @import "./styles/themes/index.css";
 @custom-variant dark (&:is(.dark *));
 
+/* Base/default tokens live in @layer base so the unlayered per-theme
+   [data-theme="..."] selectors (same specificity) always win the cascade.
+   Without the layer, these later-declared :root/.dark blocks overrode every
+   theme, so only the default theme's light/dark ever applied. */
+@layer base {
 :root {
   --radius: 0.375rem;
   --background: oklch(1.0000 0 0);
@@ -114,6 +119,7 @@
   --shadow-lg: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 4px 6px -2px hsl(0 0% 0% / 0.10);
   --shadow-xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 8px 10px -2px hsl(0 0% 0% / 0.10);
   --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
+}
 }
 
 @theme inline {
