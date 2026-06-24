@@ -91,6 +91,21 @@ export const api = {
   disableYubikey: (password: string) =>
     invoke<string>("disable_yubikey", { password }),
 
+  // Test (non-destructively) whether the inserted YubiKey is a valid backup,
+  // i.e. programmed with the same HMAC secret as the enrolled key.
+  verifyYubikeyBackup: (password: string) =>
+    invoke<boolean>("verify_yubikey_backup", { password }),
+
+  // Program a slot for HMAC-SHA1 challenge-response (native USB; no ykman).
+  // Pass secretHex to reuse a known secret (for backup keys), or null to
+  // generate a fresh random one. Returns the secret hex used (save it!).
+  ykProgramHmac: (slot: number, secretHex: string | null, requireTouch: boolean) =>
+    invoke<string>("yk_program_hmac", { slot, secretHex, requireTouch }),
+
+  // Erase (format) a YubiKey slot. Refuses to erase the enrolled slot.
+  ykEraseSlot: (slot: number) =>
+    invoke<string>("yk_erase_slot", { slot }),
+
   generateKey: (keyType: string, purpose: number, account: number, index: number) =>
     invoke<KeyEntry>("generate_key", {
       keyType,

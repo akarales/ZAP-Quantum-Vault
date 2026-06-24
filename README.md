@@ -60,6 +60,8 @@
 - [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
 - [Development](#-development)
+- [Running the App](#-running-the-app)
+- [Resetting the Vault (Nuclear Options)](#-resetting-the-vault-nuclear-options)
 - [Testing](#-testing)
 - [Building](#-building)
 - [Security Model](#-security-model)
@@ -303,6 +305,84 @@ pnpm lint
 ```
 
 The dev server starts at `http://localhost:1420` with the Tauri window opening automatically.
+
+---
+
+## ▶️ Running the App
+
+```bash
+# Full desktop app (Vite frontend + Rust backend in one window) — recommended
+pnpm tauri dev
+
+# Frontend only in a browser (no Tauri APIs, no vault backend)
+pnpm dev
+
+# Run a built release binary directly (after `pnpm tauri build`)
+./src-tauri/target/release/zap-quantum-vault
+```
+
+> **YubiKey on Linux:** programming/detection uses the native USB backend. If
+> the key isn't detected, ensure your user can access the HID device (the
+> standard Yubico udev rules grant this), then replug the key.
+
+---
+
+## ☢️ Resetting the Vault (Nuclear Options)
+
+The app stores **all** persistent state in the OS-specific *local app data
+directory* under the bundle id `com.zapblockchain.quantumvault`. There is **no
+network database** — everything is local, encrypted files.
+
+| Platform | Data directory |
+|----------|----------------|
+| **Linux** | `~/.local/share/com.zapblockchain.quantumvault/` |
+| **macOS** | `~/Library/Application Support/com.zapblockchain.quantumvault/` |
+| **Windows** | `%LOCALAPPDATA%\com.zapblockchain.quantumvault\` |
+
+| File | Contents |
+|------|----------|
+| `vault.json` | Vault metadata: KDF salt, password verifier, active keystore name, YubiKey settings |
+| `keys.enc` / `keys-<uuid>.enc` | AES-256-GCM encrypted keystore (your keys) |
+| `salt.txt` | Stronghold Argon2id salt |
+
+> ⚠️ **These actions are irreversible.** Deleting these files destroys every key
+> in the vault. There is no recovery unless you have a **BIP39 mnemonic backup**
+> or an exported keystore. Make sure the app is **fully closed** first.
+
+### Linux / macOS — wipe everything (fresh database)
+
+```bash
+# Linux
+rm -rf ~/.local/share/com.zapblockchain.quantumvault
+
+# macOS
+rm -rf ~/Library/Application\ Support/com.zapblockchain.quantumvault
+```
+
+### Windows (PowerShell) — wipe everything
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\com.zapblockchain.quantumvault"
+```
+
+### Surgical resets (keep the directory, drop specific state)
+
+```bash
+# Linux example — set DIR once, reuse below
+DIR=~/.local/share/com.zapblockchain.quantumvault
+
+# Reset ONLY the vault (forces create-new on next launch), keep Stronghold salt
+rm -f "$DIR"/vault.json "$DIR"/keys.enc "$DIR"/keys-*.enc
+
+# Reset ONLY Stronghold
+rm -f "$DIR"/salt.txt
+
+# Inspect what's there without deleting
+ls -la "$DIR"
+```
+
+After deleting, relaunch with `pnpm tauri dev` (or the release binary) and the
+app will start at the **Create Vault** screen with a clean database.
 
 ---
 

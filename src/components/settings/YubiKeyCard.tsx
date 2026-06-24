@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
-import { Usb, Lock, Eye, EyeOff, Loader2, ShieldCheck, ShieldOff, AlertTriangle, Fingerprint } from "lucide-react";
+import { Usb, Lock, Eye, EyeOff, Loader2, ShieldCheck, ShieldOff, AlertTriangle, Fingerprint, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
 import { api, type SlotInfo } from "@/lib/api";
+
+const BACKUP_VERIFIED_KEY = "yubikey-backup-verified";
 
 function PasswordField({
   label,
@@ -54,6 +57,9 @@ export function YubiKeyCard() {
   const [slots, setSlots] = useState<SlotInfo[]>([]);
   const [detectedName, setDetectedName] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [backupVerified, setBackupVerified] = useState(
+    () => typeof window !== "undefined" && localStorage.getItem(BACKUP_VERIFIED_KEY) === "true"
+  );
 
   const refreshStatus = async () => {
     try {
@@ -143,7 +149,23 @@ export function YubiKeyCard() {
       await api.disableYubikey(password);
       toast.success("YubiKey disabled. The vault now unlocks with password only.");
       setPassword("");
+      setBackupVerified(false);
+      localStorage.removeItem(BACKUP_VERIFIED_KEY);
       await refreshStatus();
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestBackup = async () => {
+    setLoading(true);
+    try {
+      await api.verifyYubikeyBackup(password);
+      setBackupVerified(true);
+      localStorage.setItem(BACKUP_VERIFIED_KEY, "true");
+      toast.success("This key works — it is a valid backup for the vault.");
     } catch (err) {
       toast.error(String(err));
     } finally {
@@ -165,6 +187,49 @@ export function YubiKeyCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="glass grid grid-cols-2 gap-3 rounded-xl p-3">
+          {[
+            {
+              label: "Primary Key",
+              active: enabled,
+              sub: enabled ? `Enrolled · slot ${slot}` : "Not enrolled",
+            },
+            {
+              label: "Backup Key",
+              active: enabled && backupVerified,
+              sub: !enabled ? "—" : backupVerified ? "Verified" : "Not verified",
+            },
+          ].map((k) => (
+            <div
+              key={k.label}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+                k.active ? "border-primary/40 bg-primary/5" : "border-border/40"
+              )}
+            >
+              <div
+                className={cn(
+                  "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                  k.active
+                    ? "bg-primary/15 text-primary glow-primary"
+                    : "bg-muted/40 text-muted-foreground"
+                )}
+              >
+                <KeyRound className="h-5 w-5" />
+                {k.active && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary animate-pulse-glow" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium leading-tight">{k.label}</p>
+                <p className={cn("text-xs", k.active ? "text-primary" : "text-muted-foreground")}>
+                  {k.sub}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
         <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <p className="text-xs text-muted-foreground">
@@ -239,17 +304,32 @@ export function YubiKeyCard() {
           <form onSubmit={handleDisable} className="space-y-4">
             <p className="text-sm text-muted-foreground">
               A YubiKey is enrolled on <span className="font-mono">slot {slot}</span>.
-              To disable it, confirm your password with the key inserted.
+              Use <strong>Test backup key</strong> to confirm a second key works, or
+              <strong> Disable</strong> to remove the factor — both need your password with a key inserted.
             </p>
+            <div className="flex items-start gap-3 rounded-lg border border-border px-4 py-3">
+              <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-xs text-muted-foreground">
+                <strong>Backup key:</strong> program a second YubiKey with the <em>same</em> HMAC
+                secret as the enrolled one (<span className="font-mono">ykman otp chalresp --touch &lt;secret&gt; {slot}</span>),
+                then insert it and click <strong>Test backup key</strong> to verify it unlocks this vault.
+              </p>
+            </div>
             <PasswordField
               label="Current Password"
               value={password}
               onChange={setPassword}
             />
-            <Button type="submit" variant="destructive" disabled={password.length === 0 || loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldOff className="h-4 w-4" />}
-              Disable YubiKey
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={handleTestBackup} disabled={password.length === 0 || loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                Test backup key
+              </Button>
+              <Button type="submit" variant="destructive" disabled={password.length === 0 || loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldOff className="h-4 w-4" />}
+                Disable YubiKey
+              </Button>
+            </div>
           </form>
         )}
       </CardContent>

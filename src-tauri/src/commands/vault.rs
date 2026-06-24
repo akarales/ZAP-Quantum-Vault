@@ -412,6 +412,110 @@ pub fn disable_yubikey(
     Ok("YubiKey disabled successfully".to_string())
 }
 
+/// Test whether the currently-inserted YubiKey is a valid backup for this vault,
+/// WITHOUT modifying anything. Derives the vault key using the inserted key's
+/// response to the stored challenge and checks it against the verifier. Use this
+/// to confirm a second (backup) key was programmed with the same HMAC secret
+/// before relying on it for recovery.
+#[tauri::command]
+pub fn verify_yubikey_backup(
+    app: AppHandle,
+    password: String,
+    state: State<'_, VaultMutex>,
+) -> Result<bool> {
+    let mut vault = state.0.lock().unwrap();
+    load_vault_if_needed(&app, &mut vault);
+    if !vault.initialized {
+        return Err(VaultError::NotInitialized);
+    }
+    if !vault.yubikey_enabled {
+        return Err(VaultError::YubiKeyNotEnrolled);
+    }
+
+    // Derive with the inserted key's challenge-response and check the verifier.
+    // No state is mutated, so a wrong key simply reports failure.
+    let enc = derive_vault_enc_key(&vault, &password)?;
+    match verify_enc_key(&vault, &enc) {
+        Ok(()) => Ok(true),
+        Err(_) => Err(VaultError::YubiKey(
+            "This key does not match the enrolled secret. Program it with the same \
+             HMAC secret (ykman otp chalresp --touch <secret> <slot>)."
+                .to_string(),
+        )),
+    }
+}
+
+/// Guard against (re)programming or erasing the slot the vault currently relies
+/// on, which would otherwise irreversibly lock the user out.
+fn ensure_slot_not_enrolled(app: &AppHandle, vault: &mut VaultState, slot: u8, action: &str) -> Result<()> {
+    load_vault_if_needed(app, vault);
+    if vault.initialized && vault.yubikey_enabled && vault.yubikey_slot == slot {
+        return Err(VaultError::YubiKey(format!(
+            "Slot {slot} is currently enrolled for this vault. Disable the YubiKey \
+             factor first — {action} it now would permanently lock you out."
+        )));
+    }
+    Ok(())
+}
+
+/// Program a YubiKey slot for HMAC-SHA1 challenge-response (native USB, no
+/// external tools). If `secret_hex` is omitted, a fresh random 20-byte secret is
+/// generated. Returns the secret hex used, so the UI can display it once for the
+/// user to save and program backup keys with the SAME secret.
+#[tauri::command]
+pub fn yk_program_hmac(
+    app: AppHandle,
+    slot: u8,
+    secret_hex: Option<String>,
+    require_touch: bool,
+    state: State<'_, VaultMutex>,
+) -> Result<String> {
+    use crate::commands::yubikey::{self, UsbProgrammer, YubiKeyProgrammer, HMAC_SECRET_SIZE};
+
+    {
+        let mut vault = state.0.lock().unwrap();
+        ensure_slot_not_enrolled(&app, &mut vault, slot, "reprogramming")?;
+    }
+
+    let secret: [u8; HMAC_SECRET_SIZE] = match secret_hex {
+        Some(h) => {
+            let bytes = hex::decode(h.trim())
+                .map_err(|e| VaultError::YubiKey(format!("invalid secret hex: {e}")))?;
+            bytes.as_slice().try_into().map_err(|_| {
+                VaultError::YubiKey(format!(
+                    "secret must be {HMAC_SECRET_SIZE} bytes ({} hex characters)",
+                    HMAC_SECRET_SIZE * 2
+                ))
+            })?
+        }
+        None => yubikey::generate_hmac_secret(),
+    };
+
+    let mut programmer = UsbProgrammer;
+    programmer.program_hmac(slot, &secret, require_touch)?;
+    Ok(hex::encode(secret))
+}
+
+/// Erase (format) a YubiKey slot. Refuses to erase the slot currently enrolled
+/// for this vault.
+#[tauri::command]
+pub fn yk_erase_slot(
+    app: AppHandle,
+    slot: u8,
+    state: State<'_, VaultMutex>,
+) -> Result<String> {
+    use crate::commands::yubikey::{UsbProgrammer, YubiKeyProgrammer};
+
+    {
+        let mut vault = state.0.lock().unwrap();
+        ensure_slot_not_enrolled(&app, &mut vault, slot, "erasing")?;
+    }
+
+    let mut programmer = UsbProgrammer;
+    programmer.erase_slot(slot)?;
+    Ok(format!("Slot {slot} erased"))
+}
+
 #[tauri::command]
 pub fn lock_vault(
     state: State<'_, VaultMutex>,
