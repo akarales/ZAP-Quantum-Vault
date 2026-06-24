@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Usb, Lock, Eye, EyeOff, Loader2, ShieldCheck, ShieldOff, AlertTriangle, Fingerprint } from "lucide-react";
+import { Usb, Lock, Eye, EyeOff, Loader2, ShieldCheck, ShieldOff, AlertTriangle, Fingerprint, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -151,6 +151,18 @@ export function YubiKeyCard() {
     }
   };
 
+  const handleTestBackup = async () => {
+    setLoading(true);
+    try {
+      await api.verifyYubikeyBackup(password);
+      toast.success("This key works — it is a valid backup for the vault.");
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -239,17 +251,32 @@ export function YubiKeyCard() {
           <form onSubmit={handleDisable} className="space-y-4">
             <p className="text-sm text-muted-foreground">
               A YubiKey is enrolled on <span className="font-mono">slot {slot}</span>.
-              To disable it, confirm your password with the key inserted.
+              Use <strong>Test backup key</strong> to confirm a second key works, or
+              <strong> Disable</strong> to remove the factor — both need your password with a key inserted.
             </p>
+            <div className="flex items-start gap-3 rounded-lg border border-border px-4 py-3">
+              <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-xs text-muted-foreground">
+                <strong>Backup key:</strong> program a second YubiKey with the <em>same</em> HMAC
+                secret as the enrolled one (<span className="font-mono">ykman otp chalresp --touch &lt;secret&gt; {slot}</span>),
+                then insert it and click <strong>Test backup key</strong> to verify it unlocks this vault.
+              </p>
+            </div>
             <PasswordField
               label="Current Password"
               value={password}
               onChange={setPassword}
             />
-            <Button type="submit" variant="destructive" disabled={password.length === 0 || loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldOff className="h-4 w-4" />}
-              Disable YubiKey
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={handleTestBackup} disabled={password.length === 0 || loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                Test backup key
+              </Button>
+              <Button type="submit" variant="destructive" disabled={password.length === 0 || loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldOff className="h-4 w-4" />}
+                Disable YubiKey
+              </Button>
+            </div>
           </form>
         )}
       </CardContent>

@@ -412,6 +412,39 @@ pub fn disable_yubikey(
     Ok("YubiKey disabled successfully".to_string())
 }
 
+/// Test whether the currently-inserted YubiKey is a valid backup for this vault,
+/// WITHOUT modifying anything. Derives the vault key using the inserted key's
+/// response to the stored challenge and checks it against the verifier. Use this
+/// to confirm a second (backup) key was programmed with the same HMAC secret
+/// before relying on it for recovery.
+#[tauri::command]
+pub fn verify_yubikey_backup(
+    app: AppHandle,
+    password: String,
+    state: State<'_, VaultMutex>,
+) -> Result<bool> {
+    let mut vault = state.0.lock().unwrap();
+    load_vault_if_needed(&app, &mut vault);
+    if !vault.initialized {
+        return Err(VaultError::NotInitialized);
+    }
+    if !vault.yubikey_enabled {
+        return Err(VaultError::YubiKeyNotEnrolled);
+    }
+
+    // Derive with the inserted key's challenge-response and check the verifier.
+    // No state is mutated, so a wrong key simply reports failure.
+    let enc = derive_vault_enc_key(&vault, &password)?;
+    match verify_enc_key(&vault, &enc) {
+        Ok(()) => Ok(true),
+        Err(_) => Err(VaultError::YubiKey(
+            "This key does not match the enrolled secret. Program it with the same \
+             HMAC secret (ykman otp chalresp --touch <secret> <slot>)."
+                .to_string(),
+        )),
+    }
+}
+
 #[tauri::command]
 pub fn lock_vault(
     state: State<'_, VaultMutex>,

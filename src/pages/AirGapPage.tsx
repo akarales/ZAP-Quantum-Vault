@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Usb, QrCode, ScanLine, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Usb, QrCode, ScanLine, ShieldCheck, ShieldAlert, Loader2, Download, Upload, Pause, Play, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import QRCode from "qrcode";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
 import { useKeyStore } from "@/store/keyStore";
 import { api, type AirGapEnvelope } from "@/lib/api";
+import { buildFrames, extractEnvelopeJson } from "@/lib/airgapQr";
 
 export function AirGapPage() {
   const { keys, fetchKeys } = useKeyStore();
@@ -20,9 +21,12 @@ export function AirGapPage() {
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
   const [selectedKeyId, setSelectedKeyId] = useState("");
   const [payload, setPayload] = useState("");
-  const [transferType, setTransferType] = useState("transaction");
-  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [transferType, setTransferType] = useState("unsigned_tx");
+  const [frames, setFrames] = useState<string[]>([]);
+  const [frameIndex, setFrameIndex] = useState(0);
+  const [playing, setPlaying] = useState(true);
   const [envelopeJson, setEnvelopeJson] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsedEnvelope, setParsedEnvelope] = useState<AirGapEnvelope | null>(null);
   const [verified, setVerified] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -40,9 +44,22 @@ export function AirGapPage() {
         .join("");
       const result = await api.generateQrWithKey(selectedKey.id, payloadHex, transferType);
       setEnvelopeJson(result);
-      const dataUrl = await QRCode.toDataURL(result, { width: 300, margin: 2 });
-      setQrDataUrl(dataUrl);
-      toast.success("QR envelope generated");
+      // ML-DSA-87 envelopes (~15 KB) exceed a single QR's ~2.9 KB capacity, so we
+      // split them into numbered frames that the display cycles through.
+      const frameTexts = buildFrames(result);
+      const urls = await Promise.all(
+        frameTexts.map((t) =>
+          QRCode.toDataURL(t, { width: 320, margin: 2, errorCorrectionLevel: "M" })
+        )
+      );
+      setFrames(urls);
+      setFrameIndex(0);
+      setPlaying(true);
+      toast.success(
+        urls.length > 1
+          ? `QR envelope ready — ${urls.length} animated frames`
+          : "QR envelope ready"
+      );
     } catch (e) {
       toast.error(`Generation failed: ${e}`);
     } finally {
@@ -50,11 +67,43 @@ export function AirGapPage() {
     }
   };
 
+  // Cycle animated QR frames while playing.
+  useEffect(() => {
+    if (!playing || frames.length <= 1) return;
+    const t = setInterval(() => setFrameIndex((i) => (i + 1) % frames.length), 600);
+    return () => clearInterval(t);
+  }, [playing, frames]);
+
+  const handleDownload = () => {
+    const blob = new Blob([envelopeJson], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `airgap-envelope-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Envelope saved to file");
+  };
+
+  const handleLoadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setEnvelopeJson(text.trim());
+      toast.success(`Loaded ${file.name}`);
+    } catch (err) {
+      toast.error(`Could not read file: ${err}`);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const handleParse = async () => {
     if (!envelopeJson) return;
     setParsing(true);
     try {
-      const env = await api.parseQr(envelopeJson);
+      const env = await api.parseQr(extractEnvelopeJson(envelopeJson));
       setParsedEnvelope(env);
       setVerified(false);
       toast.success("Envelope parsed (not yet verified)");
@@ -69,7 +118,7 @@ export function AirGapPage() {
     if (!envelopeJson) return;
     setVerifying(true);
     try {
-      const env = await api.verifyQr(envelopeJson);
+      const env = await api.verifyQr(extractEnvelopeJson(envelopeJson));
       setParsedEnvelope(env);
       setVerified(true);
       toast.success("Envelope verified: signature, freshness & replay checks passed");
@@ -125,10 +174,9 @@ export function AirGapPage() {
                     <div className="space-y-2">
                       <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Transfer Type</label>
                       <NativeSelect value={transferType} onChange={(e) => setTransferType(e.target.value)} className="w-full">
-                        <option value="transaction">Transaction</option>
-                        <option value="key_export">Key Export</option>
-                        <option value="message">Message</option>
-                        <option value="backup">Backup</option>
+                        <option value="unsigned_tx">Unsigned Transaction</option>
+                        <option value="signed_tx">Signed Transaction</option>
+                        <option value="encrypted_key">Encrypted Key</option>
                       </NativeSelect>
                     </div>
                     <div className="space-y-2">
@@ -144,13 +192,42 @@ export function AirGapPage() {
                 <Card>
                   <CardHeader><CardTitle>QR Code Output</CardTitle></CardHeader>
                   <CardContent>
-                    {qrDataUrl ? (
+                    {frames.length > 0 ? (
                       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center gap-4">
-                        <img src={qrDataUrl} alt="QR Code" className="rounded-lg border border-border p-2 bg-white" />
+                        <img src={frames[frameIndex]} alt={`QR frame ${frameIndex + 1}`} className="rounded-lg border border-border p-2 bg-white" />
+
+                        {frames.length > 1 ? (
+                          <div className="flex w-full flex-col items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              <Button variant="outline" size="icon" onClick={() => setFrameIndex((i) => (i - 1 + frames.length) % frames.length)}>
+                                <ChevronLeft className="h-4 w-4" />
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => setPlaying((p) => !p)}>
+                                {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                                {playing ? "Pause" : "Play"}
+                              </Button>
+                              <Button variant="outline" size="icon" onClick={() => setFrameIndex((i) => (i + 1) % frames.length)}>
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <Badge variant="outline">Frame {frameIndex + 1} / {frames.length}</Badge>
+                            <p className="text-center text-xs text-muted-foreground">
+                              This envelope is too large for one QR. Point your scanner at the screen—
+                              the {frames.length} frames cycle automatically until all are captured.
+                              Or use the file options below.
+                            </p>
+                          </div>
+                        ) : null}
+
                         <div className="w-full">
                           <div className="mb-1 flex items-center justify-between">
                             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Envelope JSON</label>
-                            <CopyButton text={envelopeJson} />
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="sm" onClick={handleDownload}>
+                                <Download className="h-4 w-4" /> Save .json
+                              </Button>
+                              <CopyButton text={envelopeJson} />
+                            </div>
                           </div>
                           <p className="rounded-md bg-muted px-3 py-2 text-xs font-mono break-all max-h-32 overflow-y-auto">{envelopeJson}</p>
                         </div>
@@ -178,8 +255,14 @@ export function AirGapPage() {
                 <CardHeader><CardTitle>Parse Envelope</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Envelope JSON</label>
-                    <Textarea value={envelopeJson} onChange={(e) => setEnvelopeJson(e.target.value)} placeholder="Paste envelope JSON here..." rows={8} />
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Envelope JSON or QR frames</label>
+                      <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
+                        <Upload className="h-4 w-4" /> Load .json
+                      </Button>
+                      <input ref={fileInputRef} type="file" accept="application/json,.json,.txt" className="hidden" onChange={handleLoadFile} />
+                    </div>
+                    <Textarea value={envelopeJson} onChange={(e) => setEnvelopeJson(e.target.value)} placeholder="Paste envelope JSON, scanned QR frames (one per line), or load a .json file..." rows={8} />
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={handleParse} disabled={!envelopeJson || parsing || verifying}>

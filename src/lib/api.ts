@@ -91,6 +91,11 @@ export const api = {
   disableYubikey: (password: string) =>
     invoke<string>("disable_yubikey", { password }),
 
+  // Test (non-destructively) whether the inserted YubiKey is a valid backup,
+  // i.e. programmed with the same HMAC secret as the enrolled key.
+  verifyYubikeyBackup: (password: string) =>
+    invoke<boolean>("verify_yubikey_backup", { password }),
+
   generateKey: (keyType: string, purpose: number, account: number, index: number) =>
     invoke<KeyEntry>("generate_key", {
       keyType,

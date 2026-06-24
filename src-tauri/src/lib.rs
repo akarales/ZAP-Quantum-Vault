@@ -39,6 +39,7 @@ pub fn run() {
             commands::vault::yubikey_status,
             commands::vault::enroll_yubikey,
             commands::vault::disable_yubikey,
+            commands::vault::verify_yubikey_backup,
             commands::yubikey::detect_yubikey,
             commands::keys::generate_key,
             commands::keys::list_keys,
