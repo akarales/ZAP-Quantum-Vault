@@ -4,7 +4,7 @@ pub mod error;
 pub mod models;
 
 use commands::vault::{VaultMutex, UnlockState};
-use commands::keys::{KeyStore, SessionKey};
+use commands::keys::{KeyStore, SessionKey, MasterSeed};
 use commands::airgap::SeenNonces;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -28,11 +28,13 @@ pub fn run() {
         .manage(VaultMutex(Mutex::new(models::vault::VaultState::default())))
         .manage(KeyStore(Mutex::new(Vec::new())))
         .manage(SessionKey(Mutex::new(None)))
+        .manage(MasterSeed(Mutex::new(None)))
         .manage(SeenNonces::default())
         .manage(UnlockState::default())
         .invoke_handler(tauri::generate_handler![
             commands::vault::vault_status,
             commands::vault::create_vault,
+            commands::vault::restore_from_mnemonic,
             commands::vault::unlock_vault,
             commands::vault::change_password,
             commands::vault::lock_vault,

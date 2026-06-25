@@ -2,9 +2,9 @@ use tauri::{State, AppHandle};
 use std::sync::Mutex;
 use std::path::PathBuf;
 use crate::error::{Result, VaultError};
-use crate::crypto::{kdf, encryption};
+use crate::crypto::{kdf, encryption, mnemonic};
 use crate::models::vault::VaultState;
-use crate::commands::keys::{KeyStore, SessionKey, load_keys, save_keys, keys_file_path, atomic_write};
+use crate::commands::keys::{KeyStore, SessionKey, MasterSeed, load_keys, save_keys, keys_file_path, atomic_write};
 use zeroize::Zeroizing;
 use chrono::Utc;
 
@@ -121,12 +121,41 @@ fn derive_vault_enc_key(
     } else {
         None
     };
-    let master = Zeroizing::new(kdf::derive_master_key_with_factor(
+    let master = Zeroizing::new(kdf::derive_master_key_with_factor_params(
         password.as_bytes(),
         response.as_deref(),
         &salt,
+        vault.kdf_params(),
     )?);
     Ok(Zeroizing::new(kdf::derive_encryption_key(&master, "vault_encryption")))
+}
+
+/// Encrypt the BIP39 master seed under the vault encryption key, returning the
+/// `nonce_hex:ciphertext_hex` form stored in `vault.json`.
+fn encrypt_master_seed(enc_key: &[u8; 32], seed: &[u8; 64]) -> Result<String> {
+    let ct = encryption::encrypt_vault(enc_key, seed)
+        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    Ok(hex::encode(ct.nonce) + ":" + &hex::encode(ct.ciphertext))
+}
+
+/// Decrypt the stored `nonce_hex:ciphertext_hex` master seed with `enc_key`.
+/// Returns `None` for vaults that have no stored seed (legacy/password-only).
+fn decrypt_master_seed(enc_key: &[u8; 32], stored: &str) -> Result<Option<Zeroizing<[u8; 64]>>> {
+    if stored.is_empty() {
+        return Ok(None);
+    }
+    let parts: Vec<&str> = stored.split(':').collect();
+    if parts.len() != 2 {
+        return Err(VaultError::Storage("malformed master seed record".into()));
+    }
+    let nonce = hex::decode(parts[0]).map_err(|e| VaultError::Storage(e.to_string()))?;
+    let ciphertext = hex::decode(parts[1]).map_err(|e| VaultError::Storage(e.to_string()))?;
+    let ct = encryption::Ciphertext { nonce, ciphertext };
+    let plain = encryption::decrypt_vault(enc_key, &ct)
+        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let arr: [u8; 64] = plain.as_slice().try_into()
+        .map_err(|_| VaultError::Storage("master seed has wrong length".into()))?;
+    Ok(Some(Zeroizing::new(arr)))
 }
 
 /// Decrypt the stored verifier with `enc_key` and confirm it matches the known
@@ -167,6 +196,13 @@ fn rekey_vault(
     // untouched so the vault stays readable with the old key until we commit.
     let new_keys_file = format!("keys-{}.enc", uuid::Uuid::new_v4());
     save_keys(app, &new_keys_file, &new_enc, &entries)?;
+
+    // Re-wrap the HD master seed under the new key (the seed itself is constant,
+    // only its encryption changes), so HD-derived keys remain stable across a
+    // password / YubiKey change. No-op for legacy vaults with no stored seed.
+    if let Some(seed) = decrypt_master_seed(old_enc, &vault.master_seed_enc_hex)? {
+        vault.master_seed_enc_hex = encrypt_master_seed(&new_enc, &seed)?;
+    }
 
     // COMMIT: atomically write vault.json pointing at the new verifier/keystore.
     let verifier = b"ZAP_VAULT_VERIFIER";
@@ -224,22 +260,33 @@ pub fn yubikey_status(
     })
 }
 
-#[tauri::command]
-pub fn create_vault(
-    app: AppHandle,
-    password: String,
-    state: State<'_, VaultMutex>,
-    session: State<'_, SessionKey>,
-) -> Result<String> {
-    let mut vault = state.0.lock().unwrap();
-    // Make sure we don't clobber an existing on-disk vault.
-    load_vault_if_needed(&app, &mut vault);
-    if vault.initialized {
-        return Err(VaultError::AlreadyUnlocked);
-    }
+/// Result of creating (or restoring) a vault. Carries the BIP39 mnemonic so the
+/// UI can present it once for the user to write down — it is never persisted in
+/// plaintext and cannot be retrieved again later.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CreateVaultResult {
+    pub mnemonic: String,
+}
 
+/// Initialize a fresh vault around an existing 64-byte BIP39 master seed: derive
+/// key material with the high Argon2 profile, store the encrypted verifier +
+/// master seed + KDF params, persist `vault.json`, and open the session. Shared
+/// by `create_vault` (new random mnemonic) and `restore_from_mnemonic`.
+fn init_vault_with_seed(
+    app: &AppHandle,
+    password: &str,
+    seed: &[u8; mnemonic::SEED_SIZE],
+    vault: &mut VaultState,
+    session: &State<'_, SessionKey>,
+    master_seed: &State<'_, MasterSeed>,
+) -> Result<()> {
+    let params = kdf::KdfParams::high();
     let salt = kdf::generate_salt();
-    let master_key = Zeroizing::new(kdf::derive_master_key(password.as_bytes(), &salt)?);
+    let master_key = Zeroizing::new(kdf::derive_master_key_with_params(
+        password.as_bytes(),
+        &salt,
+        params,
+    )?);
     let enc_key = Zeroizing::new(kdf::derive_encryption_key(&master_key, "vault_encryption"));
 
     let verifier = b"ZAP_VAULT_VERIFIER";
@@ -248,14 +295,74 @@ pub fn create_vault(
 
     vault.salt_hex = hex::encode(salt);
     vault.verifier_hash_hex = hex::encode(ct.nonce) + ":" + &hex::encode(ct.ciphertext);
+    vault.kdf_version = kdf::KDF_VERSION;
+    vault.argon2_memory_kib = params.memory_kib;
+    vault.argon2_iterations = params.iterations;
+    vault.argon2_parallelism = params.parallelism;
+    vault.master_seed_enc_hex = encrypt_master_seed(&enc_key, seed)?;
     vault.initialized = true;
 
-    persist_vault(&app, &vault)?;
+    persist_vault(app, vault)?;
 
     // Open the freshly created vault for this session.
+    *master_seed.0.lock().unwrap() = Some(Zeroizing::new(*seed));
     *session.0.lock().unwrap() = Some(enc_key);
+    Ok(())
+}
 
-    Ok("Vault created successfully".to_string())
+#[tauri::command]
+pub fn create_vault(
+    app: AppHandle,
+    password: String,
+    state: State<'_, VaultMutex>,
+    session: State<'_, SessionKey>,
+    master_seed: State<'_, MasterSeed>,
+) -> Result<CreateVaultResult> {
+    let mut vault = state.0.lock().unwrap();
+    // Make sure we don't clobber an existing on-disk vault.
+    load_vault_if_needed(&app, &mut vault);
+    if vault.initialized {
+        return Err(VaultError::AlreadyUnlocked);
+    }
+
+    // Generate a fresh 24-word BIP39 mnemonic and its standard 64-byte seed.
+    let phrase = mnemonic::generate_mnemonic();
+    let seed = mnemonic::mnemonic_to_seed(&phrase)
+        .map_err(|e| VaultError::Storage(e.to_string()))?;
+
+    init_vault_with_seed(&app, &password, &seed, &mut vault, &session, &master_seed)?;
+
+    Ok(CreateVaultResult { mnemonic: phrase })
+}
+
+/// Restore a vault from an existing BIP39 mnemonic (recovery). Refuses to run if
+/// a vault already exists on disk — the user must wipe it first (see the reset
+/// instructions). Re-establishes the same HD master seed; the user then
+/// regenerates their keys at the same paths to recover identical keys.
+#[tauri::command]
+pub fn restore_from_mnemonic(
+    app: AppHandle,
+    mnemonic_phrase: String,
+    password: String,
+    state: State<'_, VaultMutex>,
+    session: State<'_, SessionKey>,
+    master_seed: State<'_, MasterSeed>,
+) -> Result<String> {
+    let mut vault = state.0.lock().unwrap();
+    load_vault_if_needed(&app, &mut vault);
+    if vault.initialized {
+        return Err(VaultError::AlreadyUnlocked);
+    }
+
+    let phrase = mnemonic_phrase.trim();
+    mnemonic::validate_mnemonic(phrase)
+        .map_err(|e| VaultError::Storage(format!("invalid recovery phrase: {e}")))?;
+    let seed = mnemonic::mnemonic_to_seed(phrase)
+        .map_err(|e| VaultError::Storage(e.to_string()))?;
+
+    init_vault_with_seed(&app, &password, &seed, &mut vault, &session, &master_seed)?;
+
+    Ok("Vault restored from recovery phrase".to_string())
 }
 
 #[tauri::command]
@@ -265,6 +372,7 @@ pub fn unlock_vault(
     state: State<'_, VaultMutex>,
     keystore: State<'_, KeyStore>,
     session: State<'_, SessionKey>,
+    master_seed: State<'_, MasterSeed>,
     throttle: State<'_, UnlockState>,
 ) -> Result<bool> {
     let now = Utc::now().timestamp() as u64;
@@ -284,10 +392,12 @@ pub fn unlock_vault(
     match verify_enc_key(&vault, &enc_key) {
         Ok(()) => {
             // Password (and YubiKey, if enrolled) correct: clear the throttle,
-            // load the keystore, then open the session.
+            // load the keystore + HD master seed, then open the session.
             throttle.0.lock().unwrap().record_success();
             let entries = load_keys(&app, &vault.keys_file, &enc_key)?;
+            let seed = decrypt_master_seed(&enc_key, &vault.master_seed_enc_hex)?;
             *keystore.0.lock().unwrap() = entries;
+            *master_seed.0.lock().unwrap() = seed;
             *session.0.lock().unwrap() = Some(enc_key);
             Ok(true)
         }
@@ -521,13 +631,15 @@ pub fn lock_vault(
     state: State<'_, VaultMutex>,
     keystore: State<'_, KeyStore>,
     session: State<'_, SessionKey>,
+    master_seed: State<'_, MasterSeed>,
 ) -> Result<()> {
     let vault = state.0.lock().unwrap();
     if !vault.initialized {
         return Err(VaultError::NotInitialized);
     }
-    // Drop the session key and clear decrypted keys from memory.
+    // Drop the session key, HD master seed, and decrypted keys from memory.
     *session.0.lock().unwrap() = None;
+    *master_seed.0.lock().unwrap() = None;
     keystore.0.lock().unwrap().clear();
     Ok(())
 }

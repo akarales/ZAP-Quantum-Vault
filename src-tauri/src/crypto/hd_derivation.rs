@@ -3,6 +3,12 @@ use thiserror::Error;
 
 pub const HARDENED_OFFSET: u32 = 0x80000000;
 
+/// BIP44-style purpose for ZAP HD paths.
+pub const ZAP_PURPOSE: u32 = 44;
+/// Placeholder SLIP-44 coin type for ZAP. TODO: register an official value.
+/// Changing this changes every derived address, so it is fixed at v1.
+pub const ZAP_COIN_TYPE: u32 = 9999;
+
 #[derive(Debug, Error)]
 pub enum DerivationError {
     #[error("invalid path component: {0}")]
@@ -108,6 +114,22 @@ pub fn derive_key_path(purpose: u32, account: u32, index: u32) -> KeyPath {
     KeyPath::hardened(purpose, account, index)
 }
 
+/// Build the canonical ZAP HD path `m/44'/9999'/{purpose}'/{account}'/{index}'`.
+/// The user-facing purpose/account/index become the lower path components inside
+/// the fixed ZAP namespace, so identical inputs always derive the same key while
+/// distinct inputs are domain-separated. All components are hardened.
+pub fn zap_path(purpose: u32, account: u32, index: u32) -> KeyPath {
+    KeyPath {
+        purpose: ZAP_PURPOSE | HARDENED_OFFSET,
+        account: ZAP_COIN_TYPE | HARDENED_OFFSET,
+        indices: vec![
+            purpose | HARDENED_OFFSET,
+            account | HARDENED_OFFSET,
+            index | HARDENED_OFFSET,
+        ],
+    }
+}
+
 pub fn derive_seed_from_master(
     master_seed: &[u8; 64],
     path: &KeyPath,
@@ -170,5 +192,49 @@ mod tests {
         let path = KeyPath::hardened(1, 2, 3);
         let bytes = path.to_bytes();
         assert_eq!(bytes.len(), 12);
+    }
+
+    #[test]
+    fn test_zap_path_format() {
+        // The canonical ZAP path embeds the fixed namespace then the user's
+        // purpose/account/index, all hardened.
+        let path = zap_path(0, 0, 0);
+        assert_eq!(path.to_string(), "m/44'/9999'/0'/0'/0'");
+        let path = zap_path(7, 3, 5);
+        assert_eq!(path.to_string(), "m/44'/9999'/7'/3'/5'");
+    }
+
+    #[test]
+    fn test_zap_path_is_fully_hardened() {
+        let path = zap_path(1, 2, 3);
+        assert_eq!(path.purpose, ZAP_PURPOSE | HARDENED_OFFSET);
+        assert_eq!(path.account, ZAP_COIN_TYPE | HARDENED_OFFSET);
+        for idx in &path.indices {
+            assert_ne!(*idx & HARDENED_OFFSET, 0);
+        }
+    }
+
+    #[test]
+    fn test_zap_path_distinct_inputs_distinct_seeds() {
+        // Different user inputs must derive distinct child seeds from one master.
+        let master = [9u8; 64];
+        let a = derive_seed_from_master(&master, &zap_path(0, 0, 0));
+        let b = derive_seed_from_master(&master, &zap_path(0, 0, 1));
+        let c = derive_seed_from_master(&master, &zap_path(0, 1, 0));
+        let d = derive_seed_from_master(&master, &zap_path(1, 0, 0));
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(a, d);
+        assert_ne!(b, c);
+    }
+
+    #[test]
+    fn test_zap_path_recovery_is_reproducible() {
+        // The same master seed + same inputs always derive the same child seed,
+        // which is what makes mnemonic recovery work.
+        let master = [0x33u8; 64];
+        let s1 = derive_seed_from_master(&master, &zap_path(44, 2, 9));
+        let s2 = derive_seed_from_master(&master, &zap_path(44, 2, 9));
+        assert_eq!(s1, s2);
     }
 }
