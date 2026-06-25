@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,7 +102,16 @@ mod tests {
     use super::*;
 
     fn sample() -> KeyEntry {
-        KeyEntry::new(KeyType::User, 44, 0, 0, "aabbcc", "deadbeefcafe", "zap1qtest", "m/44'/9999'/0'/0'/0'")
+        KeyEntry::new(
+            KeyType::User,
+            44,
+            0,
+            0,
+            "aabbcc",
+            "deadbeefcafe",
+            "zap1qtest",
+            "m/44'/9999'/0'/0'/0'",
+        )
     }
 
     #[test]

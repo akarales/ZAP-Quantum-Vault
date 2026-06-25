@@ -1,12 +1,14 @@
-use tauri::{State, AppHandle};
-use std::sync::Mutex;
-use std::path::PathBuf;
+use crate::commands::keys::{
+    atomic_write, keys_file_path, load_keys, save_keys, KeyStore, MasterSeed, SessionKey,
+};
+use crate::crypto::{encryption, kdf, mnemonic};
 use crate::error::{Result, VaultError};
-use crate::crypto::{kdf, encryption, mnemonic};
 use crate::models::vault::VaultState;
-use crate::commands::keys::{KeyStore, SessionKey, MasterSeed, load_keys, save_keys, keys_file_path, atomic_write};
-use zeroize::Zeroizing;
 use chrono::Utc;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::{AppHandle, State};
+use zeroize::Zeroizing;
 
 pub struct VaultMutex(pub Mutex<VaultState>);
 
@@ -117,7 +119,10 @@ fn derive_vault_enc_key(
     let response = if vault.yubikey_enabled {
         let challenge = hex::decode(&vault.yubikey_challenge_hex)
             .map_err(|e| VaultError::Storage(e.to_string()))?;
-        Some(crate::commands::yubikey::respond(vault.yubikey_slot, &challenge)?)
+        Some(crate::commands::yubikey::respond(
+            vault.yubikey_slot,
+            &challenge,
+        )?)
     } else {
         None
     };
@@ -127,14 +132,17 @@ fn derive_vault_enc_key(
         &salt,
         vault.kdf_params(),
     )?);
-    Ok(Zeroizing::new(kdf::derive_encryption_key(&master, "vault_encryption")))
+    Ok(Zeroizing::new(kdf::derive_encryption_key(
+        &master,
+        "vault_encryption",
+    )))
 }
 
 /// Encrypt the BIP39 master seed under the vault encryption key, returning the
 /// `nonce_hex:ciphertext_hex` form stored in `vault.json`.
 fn encrypt_master_seed(enc_key: &[u8; 32], seed: &[u8; 64]) -> Result<String> {
-    let ct = encryption::encrypt_vault(enc_key, seed)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let ct =
+        encryption::encrypt_vault(enc_key, seed).map_err(|e| VaultError::Storage(e.to_string()))?;
     Ok(hex::encode(ct.nonce) + ":" + &hex::encode(ct.ciphertext))
 }
 
@@ -151,9 +159,11 @@ fn decrypt_master_seed(enc_key: &[u8; 32], stored: &str) -> Result<Option<Zeroiz
     let nonce = hex::decode(parts[0]).map_err(|e| VaultError::Storage(e.to_string()))?;
     let ciphertext = hex::decode(parts[1]).map_err(|e| VaultError::Storage(e.to_string()))?;
     let ct = encryption::Ciphertext { nonce, ciphertext };
-    let plain = encryption::decrypt_vault(enc_key, &ct)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
-    let arr: [u8; 64] = plain.as_slice().try_into()
+    let plain =
+        encryption::decrypt_vault(enc_key, &ct).map_err(|e| VaultError::Storage(e.to_string()))?;
+    let arr: [u8; 64] = plain
+        .as_slice()
+        .try_into()
         .map_err(|_| VaultError::Storage("master seed has wrong length".into()))?;
     Ok(Some(Zeroizing::new(arr)))
 }
@@ -229,10 +239,7 @@ fn rekey_vault(
 /// The frontend uses this to decide between the "create vault" and
 /// "unlock vault" experiences on first load.
 #[tauri::command]
-pub fn vault_status(
-    app: AppHandle,
-    state: State<'_, VaultMutex>,
-) -> Result<bool> {
+pub fn vault_status(app: AppHandle, state: State<'_, VaultMutex>) -> Result<bool> {
     let mut vault = state.0.lock().unwrap();
     load_vault_if_needed(&app, &mut vault);
     Ok(vault.initialized)
@@ -248,10 +255,7 @@ pub struct YubiKeyStatus {
 }
 
 #[tauri::command]
-pub fn yubikey_status(
-    app: AppHandle,
-    state: State<'_, VaultMutex>,
-) -> Result<YubiKeyStatus> {
+pub fn yubikey_status(app: AppHandle, state: State<'_, VaultMutex>) -> Result<YubiKeyStatus> {
     let mut vault = state.0.lock().unwrap();
     load_vault_if_needed(&app, &mut vault);
     Ok(YubiKeyStatus {
@@ -327,8 +331,8 @@ pub fn create_vault(
 
     // Generate a fresh 24-word BIP39 mnemonic and its standard 64-byte seed.
     let phrase = mnemonic::generate_mnemonic();
-    let seed = mnemonic::mnemonic_to_seed(&phrase)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let seed =
+        mnemonic::mnemonic_to_seed(&phrase).map_err(|e| VaultError::Storage(e.to_string()))?;
 
     init_vault_with_seed(&app, &password, &seed, &mut vault, &session, &master_seed)?;
 
@@ -357,8 +361,8 @@ pub fn restore_from_mnemonic(
     let phrase = mnemonic_phrase.trim();
     mnemonic::validate_mnemonic(phrase)
         .map_err(|e| VaultError::Storage(format!("invalid recovery phrase: {e}")))?;
-    let seed = mnemonic::mnemonic_to_seed(phrase)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let seed =
+        mnemonic::mnemonic_to_seed(phrase).map_err(|e| VaultError::Storage(e.to_string()))?;
 
     init_vault_with_seed(&app, &password, &seed, &mut vault, &session, &master_seed)?;
 
@@ -557,7 +561,12 @@ pub fn verify_yubikey_backup(
 
 /// Guard against (re)programming or erasing the slot the vault currently relies
 /// on, which would otherwise irreversibly lock the user out.
-fn ensure_slot_not_enrolled(app: &AppHandle, vault: &mut VaultState, slot: u8, action: &str) -> Result<()> {
+fn ensure_slot_not_enrolled(
+    app: &AppHandle,
+    vault: &mut VaultState,
+    slot: u8,
+    action: &str,
+) -> Result<()> {
     load_vault_if_needed(app, vault);
     if vault.initialized && vault.yubikey_enabled && vault.yubikey_slot == slot {
         return Err(VaultError::YubiKey(format!(
@@ -609,11 +618,7 @@ pub fn yk_program_hmac(
 /// Erase (format) a YubiKey slot. Refuses to erase the slot currently enrolled
 /// for this vault.
 #[tauri::command]
-pub fn yk_erase_slot(
-    app: AppHandle,
-    slot: u8,
-    state: State<'_, VaultMutex>,
-) -> Result<String> {
+pub fn yk_erase_slot(app: AppHandle, slot: u8, state: State<'_, VaultMutex>) -> Result<String> {
     use crate::commands::yubikey::{UsbProgrammer, YubiKeyProgrammer};
 
     {

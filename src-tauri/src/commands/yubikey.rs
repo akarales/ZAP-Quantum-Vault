@@ -11,8 +11,8 @@
 //! unrecoverable** unless a backup key programmed with the *same* HMAC secret is
 //! available, or the YubiKey factor is disabled first.
 
-use serde::Serialize;
 use crate::error::{Result, VaultError};
+use serde::Serialize;
 
 /// Size (bytes) of the random challenge stored per vault (<= 64 byte HMAC limit).
 pub const CHALLENGE_SIZE: usize = 32;
@@ -140,8 +140,8 @@ pub fn detect() -> Result<YubiKeyInfo> {
         let control_in = nusb::transfer::ControlIn {
             control_type: nusb::transfer::ControlType::Class,
             recipient: nusb::transfer::Recipient::Interface,
-            request: 0x01,     // HID_GET_REPORT
-            value: 0x03 << 8,  // REPORT_TYPE_FEATURE
+            request: 0x01,    // HID_GET_REPORT
+            value: 0x03 << 8, // REPORT_TYPE_FEATURE
             index: 0,
             length: 8,
         };
@@ -196,7 +196,12 @@ pub const HMAC_SECRET_SIZE: usize = 20;
 pub trait YubiKeyProgrammer {
     /// Program `slot` for HMAC-SHA1 challenge-response with `secret`.
     /// `require_touch` makes each response require a physical button press.
-    fn program_hmac(&mut self, slot: u8, secret: &[u8; HMAC_SECRET_SIZE], require_touch: bool) -> Result<()>;
+    fn program_hmac(
+        &mut self,
+        slot: u8,
+        secret: &[u8; HMAC_SECRET_SIZE],
+        require_touch: bool,
+    ) -> Result<()>;
     /// Erase (format) `slot`, removing any credential programmed in it.
     fn erase_slot(&mut self, slot: u8) -> Result<()>;
 }
@@ -215,7 +220,11 @@ fn slot_command(slot: u8) -> challenge_response::config::Command {
 /// `challenge_response` crate's `write_config` — no external tools required.
 /// Desktop-only: the underlying USB backend is not available on mobile targets.
 #[cfg(not(test))]
-pub fn program_hmac_slot(slot: u8, secret: &[u8; HMAC_SECRET_SIZE], require_touch: bool) -> Result<()> {
+pub fn program_hmac_slot(
+    slot: u8,
+    secret: &[u8; HMAC_SECRET_SIZE],
+    require_touch: bool,
+) -> Result<()> {
     use challenge_response::config::Config;
     use challenge_response::configure::DeviceModeConfig;
     use challenge_response::hmacmode::HmacKey;
@@ -273,7 +282,11 @@ pub fn respond(_slot: u8, _challenge: &[u8]) -> Result<Vec<u8>> {
 
 /// Test build stub: no USB hardware is touched in unit tests.
 #[cfg(test)]
-pub fn program_hmac_slot(_slot: u8, _secret: &[u8; HMAC_SECRET_SIZE], _require_touch: bool) -> Result<()> {
+pub fn program_hmac_slot(
+    _slot: u8,
+    _secret: &[u8; HMAC_SECRET_SIZE],
+    _require_touch: bool,
+) -> Result<()> {
     Err(VaultError::YubiKeyNotFound)
 }
 
@@ -296,7 +309,12 @@ impl ChallengeResponder for UsbResponder {
 pub struct UsbProgrammer;
 
 impl YubiKeyProgrammer for UsbProgrammer {
-    fn program_hmac(&mut self, slot: u8, secret: &[u8; HMAC_SECRET_SIZE], require_touch: bool) -> Result<()> {
+    fn program_hmac(
+        &mut self,
+        slot: u8,
+        secret: &[u8; HMAC_SECRET_SIZE],
+        require_touch: bool,
+    ) -> Result<()> {
         program_hmac_slot(slot, secret, require_touch)
     }
     fn erase_slot(&mut self, slot: u8) -> Result<()> {
@@ -347,7 +365,16 @@ mod tests {
     #[test]
     fn test_parse_status_both_slots_configured() {
         // version 5.4.3, touchLevel low = SLOT1_VALID|SLOT2_VALID|SLOT2_TOUCH.
-        let buf = [0u8, 5, 4, 3, 2, SLOT1_VALID | SLOT2_VALID | SLOT2_TOUCH, 0, 0];
+        let buf = [
+            0u8,
+            5,
+            4,
+            3,
+            2,
+            SLOT1_VALID | SLOT2_VALID | SLOT2_TOUCH,
+            0,
+            0,
+        ];
         let (version, slots) = parse_status(&buf);
         assert_eq!(version, "5.4.3");
         assert_eq!(slots.len(), 2);

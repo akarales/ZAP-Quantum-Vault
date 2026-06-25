@@ -1,6 +1,6 @@
 use crate::crypto::mldsa87::{self, PublicKey, SecretKey, Signature};
-use ml_dsa::{Keypair, KeyExport};
 use blake3::Hasher;
+use ml_dsa::{KeyExport, Keypair};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -40,7 +40,8 @@ pub struct ThresholdSigner {
 }
 
 fn derive_public_from_secret(secret: &SecretKey) -> Result<PublicKey, ThresholdError> {
-    let seed_arr: [u8; mldsa87::SEED_SIZE] = secret.as_bytes()
+    let seed_arr: [u8; mldsa87::SEED_SIZE] = secret
+        .as_bytes()
         .try_into()
         .map_err(|_| mldsa87::CryptoError::KeyDecodeError("seed conversion failed".to_string()))?;
     let seed = ml_dsa::Seed::from(seed_arr);
@@ -53,7 +54,11 @@ fn derive_public_from_secret(secret: &SecretKey) -> Result<PublicKey, ThresholdE
 impl ThresholdSigner {
     pub fn new(secret_key: SecretKey, threshold: usize) -> Result<Self, ThresholdError> {
         let public_key = derive_public_from_secret(&secret_key)?;
-        Ok(Self { secret_key, public_key, threshold })
+        Ok(Self {
+            secret_key,
+            public_key,
+            threshold,
+        })
     }
 
     pub fn generate(threshold: usize) -> Result<Self, ThresholdError> {
@@ -178,10 +183,7 @@ mod tests {
         let s1 = ThresholdSigner::generate(2).unwrap();
         let s2 = ThresholdSigner::generate(2).unwrap();
         let msg = b"threshold test";
-        let shares = vec![
-            s1.create_share(msg).unwrap(),
-            s2.create_share(msg).unwrap(),
-        ];
+        let shares = vec![s1.create_share(msg).unwrap(), s2.create_share(msg).unwrap()];
         let sig = ThresholdSigner::aggregate(msg, shares, 2).unwrap();
         assert!(ThresholdSigner::verify(&sig, msg).unwrap());
     }

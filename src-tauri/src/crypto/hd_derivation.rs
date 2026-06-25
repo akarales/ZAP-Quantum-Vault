@@ -67,9 +67,9 @@ impl KeyPath {
         let parse_part = |s: &str| -> Result<u32, DerivationError> {
             let hardened = s.ends_with('\'');
             let num_str = s.trim_end_matches('\'');
-            let num: u32 = num_str
-                .parse()
-                .map_err(|e: std::num::ParseIntError| DerivationError::InvalidPathComponent(e.to_string()))?;
+            let num: u32 = num_str.parse().map_err(|e: std::num::ParseIntError| {
+                DerivationError::InvalidPathComponent(e.to_string())
+            })?;
             Ok(if hardened { num | HARDENED_OFFSET } else { num })
         };
 
@@ -81,14 +81,25 @@ impl KeyPath {
         }
 
         if indices.len() > 5 {
-            return Err(DerivationError::PathTooDeep { max: 5, got: indices.len() });
+            return Err(DerivationError::PathTooDeep {
+                max: 5,
+                got: indices.len(),
+            });
         }
 
-        Ok(Self { purpose, account, indices })
+        Ok(Self {
+            purpose,
+            account,
+            indices,
+        })
     }
 
-    pub fn to_string(&self) -> String {
-        let mut result = format!("m/{}'/{}'", self.purpose & 0x7FFFFFFF, self.account & 0x7FFFFFFF);
+    fn fmt_path(&self) -> String {
+        let mut result = format!(
+            "m/{}'/{}'",
+            self.purpose & 0x7FFFFFFF,
+            self.account & 0x7FFFFFFF
+        );
         for idx in &self.indices {
             if *idx & HARDENED_OFFSET != 0 {
                 result.push_str(&format!("/{}'", idx & 0x7FFFFFFF));
@@ -107,6 +118,12 @@ impl KeyPath {
             bytes.extend_from_slice(&idx.to_be_bytes());
         }
         bytes
+    }
+}
+
+impl std::fmt::Display for KeyPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.fmt_path())
     }
 }
 
@@ -130,10 +147,7 @@ pub fn zap_path(purpose: u32, account: u32, index: u32) -> KeyPath {
     }
 }
 
-pub fn derive_seed_from_master(
-    master_seed: &[u8; 64],
-    path: &KeyPath,
-) -> [u8; 32] {
+pub fn derive_seed_from_master(master_seed: &[u8; 64], path: &KeyPath) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"ZAP_HD_derive");
     hasher.update(master_seed);
@@ -155,7 +169,7 @@ mod tests {
         assert_eq!(path.purpose, 44 | HARDENED_OFFSET);
         assert_eq!(path.account, 9999 | HARDENED_OFFSET);
         assert_eq!(path.indices.len(), 3);
-        assert_eq!(path.indices[0], 0 | HARDENED_OFFSET);
+        assert_eq!(path.indices[0], HARDENED_OFFSET);
         assert_eq!(path.indices[1], 0);
         assert_eq!(path.indices[2], 1);
     }

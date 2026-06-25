@@ -1,11 +1,11 @@
-use tauri::{State, AppHandle, Manager};
-use std::sync::Mutex;
-use std::path::{Path, PathBuf};
-use crate::error::{Result, VaultError};
-use crate::crypto::{mldsa87, address, encryption, hd_derivation};
-use crate::crypto::encryption::Ciphertext;
-use crate::models::key::{KeyEntry, KeyEntryPublic, KeyType};
 use crate::commands::vault::VaultMutex;
+use crate::crypto::encryption::Ciphertext;
+use crate::crypto::{address, encryption, hd_derivation, mldsa87};
+use crate::error::{Result, VaultError};
+use crate::models::key::{KeyEntry, KeyEntryPublic, KeyType};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroizing;
 
 pub struct KeyStore(pub Mutex<Vec<KeyEntry>>);
@@ -83,8 +83,10 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {
     {
         use std::io::Write;
         let mut f = create_private_file(&tmp)?;
-        f.write_all(data).map_err(|e| VaultError::Storage(e.to_string()))?;
-        f.sync_all().map_err(|e| VaultError::Storage(e.to_string()))?;
+        f.write_all(data)
+            .map_err(|e| VaultError::Storage(e.to_string()))?;
+        f.sync_all()
+            .map_err(|e| VaultError::Storage(e.to_string()))?;
     }
     std::fs::rename(&tmp, path).map_err(|e| VaultError::Storage(e.to_string()))?;
     Ok(())
@@ -94,8 +96,8 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {
 /// Pure (no I/O) to keep it unit-testable.
 pub fn encrypt_keys(key: &[u8; 32], entries: &[KeyEntry]) -> Result<Vec<u8>> {
     let json = serde_json::to_vec(entries)?;
-    let ct = encryption::encrypt_vault(key, &json)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let ct =
+        encryption::encrypt_vault(key, &json).map_err(|e| VaultError::Storage(e.to_string()))?;
     Ok(serde_json::to_vec(&ct)?)
 }
 
@@ -103,13 +105,18 @@ pub fn encrypt_keys(key: &[u8; 32], entries: &[KeyEntry]) -> Result<Vec<u8>> {
 /// Pure (no I/O) to keep it unit-testable.
 pub fn decrypt_keys(key: &[u8; 32], data: &[u8]) -> Result<Vec<KeyEntry>> {
     let ct: Ciphertext = serde_json::from_slice(data)?;
-    let json = encryption::decrypt_vault(key, &ct)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let json =
+        encryption::decrypt_vault(key, &ct).map_err(|e| VaultError::Storage(e.to_string()))?;
     Ok(serde_json::from_slice(&json)?)
 }
 
 /// Encrypt and atomically persist the named keystore using the session key.
-pub fn save_keys(app: &AppHandle, file_name: &str, key: &[u8; 32], entries: &[KeyEntry]) -> Result<()> {
+pub fn save_keys(
+    app: &AppHandle,
+    file_name: &str,
+    key: &[u8; 32],
+    entries: &[KeyEntry],
+) -> Result<()> {
     let serialized = encrypt_keys(key, entries)?;
     let path = keys_file_path(app, file_name)?;
     atomic_write(&path, &serialized)
@@ -127,6 +134,7 @@ pub fn load_keys(app: &AppHandle, file_name: &str, key: &[u8; 32]) -> Result<Vec
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn generate_key(
     app: AppHandle,
     key_type: String,
@@ -202,16 +210,13 @@ pub fn list_keys(keystore: State<'_, KeyStore>) -> Result<Vec<KeyEntryPublic>> {
 }
 
 #[tauri::command]
-pub fn get_key_detail(
-    key_id: String,
-    keystore: State<'_, KeyStore>,
-) -> Result<KeyEntryPublic> {
+pub fn get_key_detail(key_id: String, keystore: State<'_, KeyStore>) -> Result<KeyEntryPublic> {
     let store = keystore.0.lock().unwrap();
     store
         .iter()
         .find(|k| k.id == key_id)
         .map(|k| k.to_public())
-        .ok_or_else(|| VaultError::KeyNotFound(key_id))
+        .ok_or(VaultError::KeyNotFound(key_id))
 }
 
 /// Resolve the plaintext secret key hex for a key id from the in-memory

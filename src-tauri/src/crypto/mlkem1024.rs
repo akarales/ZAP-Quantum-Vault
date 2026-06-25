@@ -1,8 +1,7 @@
 use ml_kem::{
-    MlKem1024,
+    array::Array,
     kem::{Decapsulate, Encapsulate, Kem},
-    EncapsulationKey, DecapsulationKey,
-    KeyExport, array::Array,
+    DecapsulationKey, EncapsulationKey, KeyExport, MlKem1024,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -58,10 +57,10 @@ impl KemKeyPair {
             });
         }
 
-        let ek_arr: [u8; ENCAPSULATION_KEY_SIZE] = self.encapsulation_key
-            .as_slice()
-            .try_into()
-            .map_err(|_| KemError::KeyDecodeError("slice to array conversion failed".to_string()))?;
+        let ek_arr: [u8; ENCAPSULATION_KEY_SIZE] =
+            self.encapsulation_key.as_slice().try_into().map_err(|_| {
+                KemError::KeyDecodeError("slice to array conversion failed".to_string())
+            })?;
 
         let ek = EncapsulationKey::<MlKem1024>::new(&Array::from(ek_arr))
             .map_err(|e| KemError::KeyDecodeError(e.to_string()))?;
@@ -97,17 +96,18 @@ impl KemKeyPair {
             });
         }
 
-        let seed_arr: [u8; DECAPSULATION_SEED_SIZE] = self.decapsulation_seed
+        let seed_arr: [u8; DECAPSULATION_SEED_SIZE] = self
+            .decapsulation_seed
             .as_slice()
             .try_into()
             .map_err(|_| KemError::KeyDecodeError("seed conversion failed".to_string()))?;
 
         let dk = DecapsulationKey::<MlKem1024>::from_seed(Array::from(seed_arr));
 
-        let ct_arr: [u8; CIPHERTEXT_SIZE] = ct.ciphertext
-            .as_slice()
-            .try_into()
-            .map_err(|_| KemError::KeyDecodeError("ciphertext conversion failed".to_string()))?;
+        let ct_arr: [u8; CIPHERTEXT_SIZE] =
+            ct.ciphertext.as_slice().try_into().map_err(|_| {
+                KemError::KeyDecodeError("ciphertext conversion failed".to_string())
+            })?;
 
         let shared = dk.decapsulate(&Array::from(ct_arr));
         let shared_vec = shared.to_vec();

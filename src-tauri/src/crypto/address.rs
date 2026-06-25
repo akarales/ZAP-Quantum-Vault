@@ -46,6 +46,9 @@ mod tests {
     fn test_different_keys_different_addresses() {
         let (pk1, _) = mldsa87::generate();
         let (pk2, _) = mldsa87::generate();
-        assert_ne!(derive_address(pk1.as_bytes()), derive_address(pk2.as_bytes()));
+        assert_ne!(
+            derive_address(pk1.as_bytes()),
+            derive_address(pk2.as_bytes())
+        );
     }
 }

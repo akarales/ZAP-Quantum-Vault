@@ -1,6 +1,4 @@
-use argon2::{
-    Algorithm, Argon2, Params, Version,
-};
+use argon2::{Algorithm, Argon2, Params, Version};
 use thiserror::Error;
 
 pub const ARGON2_MEMORY_KIB: u32 = 65536;
@@ -85,8 +83,13 @@ pub fn derive_master_key_with_params(
         });
     }
 
-    let params = Params::new(p.memory_kib, p.iterations, p.parallelism, Some(MASTER_KEY_SIZE))
-        .map_err(|e| KdfError::DerivationFailed(e.to_string()))?;
+    let params = Params::new(
+        p.memory_kib,
+        p.iterations,
+        p.parallelism,
+        Some(MASTER_KEY_SIZE),
+    )
+    .map_err(|e| KdfError::DerivationFailed(e.to_string()))?;
 
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 

@@ -2,9 +2,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Nonce,
 };
-use chacha20poly1305::{
-    XChaCha20Poly1305, XNonce,
-};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -70,7 +68,13 @@ pub fn encrypt_aead(key: &[u8; 32], plaintext: &[u8]) -> Result<Ciphertext, Encr
 
     let cipher = XChaCha20Poly1305::new(key.into());
     let ct = cipher
-        .encrypt(&nonce_bytes.into(), Payload { msg: plaintext, aad: b"" })
+        .encrypt(
+            &nonce_bytes.into(),
+            Payload {
+                msg: plaintext,
+                aad: b"",
+            },
+        )
         .map_err(|e| EncryptionError::EncryptFailed(e.to_string()))?;
 
     Ok(Ciphertext {
@@ -90,7 +94,13 @@ pub fn decrypt_aead(key: &[u8; 32], ct: &Ciphertext) -> Result<Vec<u8>, Encrypti
     let cipher = XChaCha20Poly1305::new(key.into());
     let nonce = XNonce::from_slice(&ct.nonce);
     cipher
-        .decrypt(nonce, Payload { msg: ct.ciphertext.as_ref(), aad: b"" })
+        .decrypt(
+            nonce,
+            Payload {
+                msg: ct.ciphertext.as_ref(),
+                aad: b"",
+            },
+        )
         .map_err(|e| EncryptionError::DecryptFailed(e.to_string()))
 }
 

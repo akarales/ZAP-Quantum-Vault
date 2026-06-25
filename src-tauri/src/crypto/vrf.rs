@@ -42,7 +42,10 @@ impl PqVrf {
         h.update(b"ZAP_vrf_pubkey");
         h.update(&secret);
         let pk = *h.finalize().as_bytes();
-        Self { secret_key: secret, public_key: pk }
+        Self {
+            secret_key: secret,
+            public_key: pk,
+        }
     }
 
     pub fn public_key(&self) -> [u8; 32] {

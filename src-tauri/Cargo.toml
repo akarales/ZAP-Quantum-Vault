@@ -18,6 +18,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-stronghold = "2"
 ml-dsa = { version = "0.1", features = ["rand_core", "getrandom"] }
 ml-kem = { version = "0.3", features = ["getrandom"] }
+# Classical signature for the hybrid (PQC + classical) signing path, so a break
+# in either ML-DSA-87 or Ed25519 alone does not forge a hybrid signature.
+ed25519-dalek = { version = "2", features = ["zeroize"] }
 chacha20poly1305 = { version = "0.10", features = ["alloc"] }
 blake3 = "1"
 aes-gcm = "0.10"
