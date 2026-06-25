@@ -14,10 +14,18 @@ pub fn default_yubikey_slot() -> u8 {
 
 /// Serde defaults for the KDF profile block. Vaults written before this block
 /// existed are read back as the legacy 64 MiB / t=3 profile so they still unlock.
-pub fn default_kdf_version() -> u32 { 1 }
-pub fn default_argon2_memory_kib() -> u32 { crate::crypto::kdf::ARGON2_MEMORY_KIB }
-pub fn default_argon2_iterations() -> u32 { crate::crypto::kdf::ARGON2_ITERATIONS }
-pub fn default_argon2_parallelism() -> u32 { crate::crypto::kdf::ARGON2_PARALLELISM }
+pub fn default_kdf_version() -> u32 {
+    1
+}
+pub fn default_argon2_memory_kib() -> u32 {
+    crate::crypto::kdf::ARGON2_MEMORY_KIB
+}
+pub fn default_argon2_iterations() -> u32 {
+    crate::crypto::kdf::ARGON2_ITERATIONS
+}
+pub fn default_argon2_parallelism() -> u32 {
+    crate::crypto::kdf::ARGON2_PARALLELISM
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultState {

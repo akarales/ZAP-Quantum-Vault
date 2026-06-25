@@ -1,6 +1,6 @@
+use crate::commands::keys::{secret_hex_for, KeyStore};
 use crate::crypto::mldsa87;
 use crate::error::{Result, VaultError};
-use crate::commands::keys::{KeyStore, secret_hex_for};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -36,8 +36,7 @@ pub fn sign_message_with_key(
 ) -> Result<String> {
     let secret_hex = secret_hex_for(&keystore, &key_id)?;
     let sk = mldsa87::SecretKey::from_hex(&secret_hex)?;
-    let message = hex::decode(&message_hex)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let message = hex::decode(&message_hex).map_err(|e| VaultError::Storage(e.to_string()))?;
     let sig = mldsa87::sign(&sk, &message)?;
     Ok(sig.to_hex())
 }

@@ -3,9 +3,9 @@ pub mod crypto;
 pub mod error;
 pub mod models;
 
-use commands::vault::{VaultMutex, UnlockState};
-use commands::keys::{KeyStore, SessionKey, MasterSeed};
 use commands::airgap::SeenNonces;
+use commands::keys::{KeyStore, MasterSeed, SessionKey};
+use commands::vault::{UnlockState, VaultMutex};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -20,9 +20,8 @@ pub fn run() {
                 .app_local_data_dir()
                 .expect("could not resolve app local data path")
                 .join("salt.txt");
-            app.handle().plugin(
-                tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
-            )?;
+            app.handle()
+                .plugin(tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build())?;
             Ok(())
         })
         .manage(VaultMutex(Mutex::new(models::vault::VaultState::default())))

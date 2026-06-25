@@ -1,7 +1,7 @@
 use ml_dsa::{
-    Generate, Keypair, KeyExport, KeyInit, Signer, Verifier,
-    MlDsa87, SigningKey as MlSigningKey, VerifyingKey as MlVerifyingKey,
-    Signature as MlSignature, Seed, EncodedVerifyingKey, EncodedSignature,
+    EncodedSignature, EncodedVerifyingKey, Generate, KeyExport, KeyInit, Keypair, MlDsa87, Seed,
+    Signature as MlSignature, Signer, SigningKey as MlSigningKey, Verifier,
+    VerifyingKey as MlVerifyingKey,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -52,8 +52,7 @@ impl PublicKey {
     }
 
     pub fn from_hex(hex_str: &str) -> Result<Self, CryptoError> {
-        let bytes = hex::decode(hex_str)
-            .map_err(|e| CryptoError::KeyDecodeError(e.to_string()))?;
+        let bytes = hex::decode(hex_str).map_err(|e| CryptoError::KeyDecodeError(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -78,8 +77,7 @@ impl SecretKey {
     }
 
     pub fn from_hex(hex_str: &str) -> Result<Self, CryptoError> {
-        let bytes = hex::decode(hex_str)
-            .map_err(|e| CryptoError::KeyDecodeError(e.to_string()))?;
+        let bytes = hex::decode(hex_str).map_err(|e| CryptoError::KeyDecodeError(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -104,8 +102,7 @@ impl Signature {
     }
 
     pub fn from_hex(hex_str: &str) -> Result<Self, CryptoError> {
-        let bytes = hex::decode(hex_str)
-            .map_err(|e| CryptoError::KeyDecodeError(e.to_string()))?;
+        let bytes = hex::decode(hex_str).map_err(|e| CryptoError::KeyDecodeError(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -115,10 +112,7 @@ pub fn generate() -> (PublicKey, SecretKey) {
     let pk = sk.verifying_key();
     let seed: Seed = sk.to_bytes();
     let pk_bytes: EncodedVerifyingKey<MlDsa87> = pk.to_bytes();
-    (
-        PublicKey(pk_bytes.to_vec()),
-        SecretKey(seed.to_vec()),
-    )
+    (PublicKey(pk_bytes.to_vec()), SecretKey(seed.to_vec()))
 }
 
 /// Deterministically derive an ML-DSA-87 keypair from a 32-byte seed. Given the
@@ -148,7 +142,11 @@ pub fn sign(secret: &SecretKey, message: &[u8]) -> Result<Signature, CryptoError
     Ok(Signature(sig_bytes.to_vec()))
 }
 
-pub fn verify(public: &PublicKey, message: &[u8], signature: &Signature) -> Result<bool, CryptoError> {
+pub fn verify(
+    public: &PublicKey,
+    message: &[u8],
+    signature: &Signature,
+) -> Result<bool, CryptoError> {
     if public.0.len() != PUBLIC_KEY_SIZE {
         return Err(CryptoError::InvalidKeySize {
             expected: PUBLIC_KEY_SIZE,

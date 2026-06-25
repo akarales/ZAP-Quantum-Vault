@@ -1,20 +1,18 @@
-use zap_quantum_vault_lib::crypto::{
-    mldsa87, address, kdf, encryption, mnemonic, hd_derivation,
-};
-use zap_quantum_vault_lib::models::vault::VaultState;
-use zap_quantum_vault_lib::models::key::{KeyEntry, KeyEntryPublic, KeyType};
-use zap_quantum_vault_lib::commands::signing::{SignRequest, VerifyRequest};
-use zap_quantum_vault_lib::commands::airgap::{
-    QrRequest, secret_to_public_hex, signing_message, verify_envelope, record_nonce,
-    ENVELOPE_VERSION, NONCE_SIZE, MAX_AGE_SECS, MAX_SKEW_SECS,
-};
 use std::collections::HashSet;
-use zap_quantum_vault_lib::commands::keys::{encrypt_keys, decrypt_keys};
-use zap_quantum_vault_lib::commands::vault::{
-    UnlockThrottle, MAX_UNLOCK_ATTEMPTS, BASE_LOCKOUT_SECS, MAX_LOCKOUT_SECS,
-};
-use zap_quantum_vault_lib::models::airgap::{AirGapEnvelope, TransferType};
 use std::sync::Mutex;
+use zap_quantum_vault_lib::commands::airgap::{
+    record_nonce, secret_to_public_hex, signing_message, verify_envelope, QrRequest,
+    ENVELOPE_VERSION, MAX_AGE_SECS, MAX_SKEW_SECS, NONCE_SIZE,
+};
+use zap_quantum_vault_lib::commands::keys::{decrypt_keys, encrypt_keys};
+use zap_quantum_vault_lib::commands::signing::{SignRequest, VerifyRequest};
+use zap_quantum_vault_lib::commands::vault::{
+    UnlockThrottle, BASE_LOCKOUT_SECS, MAX_LOCKOUT_SECS, MAX_UNLOCK_ATTEMPTS,
+};
+use zap_quantum_vault_lib::crypto::{address, encryption, hd_derivation, kdf, mldsa87, mnemonic};
+use zap_quantum_vault_lib::models::airgap::{AirGapEnvelope, TransferType};
+use zap_quantum_vault_lib::models::key::{KeyEntry, KeyEntryPublic, KeyType};
+use zap_quantum_vault_lib::models::vault::VaultState;
 
 /// Helper: build a small set of key entries for keystore tests.
 fn sample_key_entries(n: usize) -> Vec<KeyEntry> {
@@ -51,7 +49,9 @@ struct TestVault {
 
 impl TestVault {
     fn new() -> Self {
-        Self { state: Mutex::new(VaultState::default()) }
+        Self {
+            state: Mutex::new(VaultState::default()),
+        }
     }
 
     fn create(&self, password: &str) -> Result<String, String> {
@@ -60,12 +60,11 @@ impl TestVault {
             return Err("Already unlocked".to_string());
         }
         let salt = kdf::generate_salt();
-        let master_key = kdf::derive_master_key(password.as_bytes(), &salt)
-            .map_err(|e| e.to_string())?;
+        let master_key =
+            kdf::derive_master_key(password.as_bytes(), &salt).map_err(|e| e.to_string())?;
         let enc_key = kdf::derive_encryption_key(&master_key, "vault_encryption");
         let verifier = b"ZAP_VAULT_VERIFIER";
-        let ct = encryption::encrypt_vault(&enc_key, verifier)
-            .map_err(|e| e.to_string())?;
+        let ct = encryption::encrypt_vault(&enc_key, verifier).map_err(|e| e.to_string())?;
         vault.salt_hex = hex::encode(salt);
         vault.verifier_hash_hex = hex::encode(ct.nonce) + ":" + &hex::encode(ct.ciphertext);
         vault.initialized = true;
@@ -77,10 +76,9 @@ impl TestVault {
         if !vault.initialized {
             return Err("Not initialized".to_string());
         }
-        let salt = hex::decode(&vault.salt_hex)
-            .map_err(|e| e.to_string())?;
-        let master_key = kdf::derive_master_key(password.as_bytes(), &salt)
-            .map_err(|e| e.to_string())?;
+        let salt = hex::decode(&vault.salt_hex).map_err(|e| e.to_string())?;
+        let master_key =
+            kdf::derive_master_key(password.as_bytes(), &salt).map_err(|e| e.to_string())?;
         let enc_key = kdf::derive_encryption_key(&master_key, "vault_encryption");
         let parts: Vec<&str> = vault.verifier_hash_hex.split(':').collect();
         if parts.len() != 2 {
@@ -107,8 +105,8 @@ impl TestVault {
             return Err("Not initialized".to_string());
         }
         let old_salt = hex::decode(&vault.salt_hex).map_err(|e| e.to_string())?;
-        let old_master = kdf::derive_master_key(old.as_bytes(), &old_salt)
-            .map_err(|e| e.to_string())?;
+        let old_master =
+            kdf::derive_master_key(old.as_bytes(), &old_salt).map_err(|e| e.to_string())?;
         let old_enc = kdf::derive_encryption_key(&old_master, "vault_encryption");
         let parts: Vec<&str> = vault.verifier_hash_hex.split(':').collect();
         if parts.len() != 2 {
@@ -220,7 +218,7 @@ fn e2e_generate_multiple_keys_all_unique() {
         keys.push((pk, sk, addr));
     }
     for i in 0..keys.len() {
-        for j in (i+1)..keys.len() {
+        for j in (i + 1)..keys.len() {
             assert_ne!(keys[i].0.as_bytes(), keys[j].0.as_bytes());
             assert_ne!(keys[i].1.as_bytes(), keys[j].1.as_bytes());
             assert_ne!(keys[i].2, keys[j].2);
@@ -251,14 +249,28 @@ fn e2e_key_entry_creation() {
 #[test]
 fn e2e_key_entry_all_types() {
     let types = vec![
-        KeyType::Genesis, KeyType::Validator, KeyType::Governance,
-        KeyType::Treasury, KeyType::SecurityAdmin, KeyType::User,
-        KeyType::QuantumSafe, KeyType::Custom,
+        KeyType::Genesis,
+        KeyType::Validator,
+        KeyType::Governance,
+        KeyType::Treasury,
+        KeyType::SecurityAdmin,
+        KeyType::User,
+        KeyType::QuantumSafe,
+        KeyType::Custom,
     ];
     for kt in types {
         let (pk, sk) = mldsa87::generate();
         let addr = address::derive_address(pk.as_bytes());
-        let entry = KeyEntry::new(kt, 44, 0, 0, &pk.to_hex(), &sk.to_hex(), &addr, &hd_derivation::zap_path(44, 0, 0).to_string());
+        let entry = KeyEntry::new(
+            kt,
+            44,
+            0,
+            0,
+            &pk.to_hex(),
+            &sk.to_hex(),
+            &addr,
+            &hd_derivation::zap_path(44, 0, 0).to_string(),
+        );
         assert!(!entry.id.is_empty());
     }
 }
@@ -398,7 +410,10 @@ fn e2e_airgap_qr_checksum_integrity() {
     let parsed: AirGapEnvelope = serde_json::from_str(&json).unwrap();
     let payload_bytes = hex::decode(&parsed.payload_hex).unwrap();
     let computed_checksum = blake3::hash(&payload_bytes);
-    assert_eq!(parsed.checksum_hex, hex::encode(computed_checksum.as_bytes()));
+    assert_eq!(
+        parsed.checksum_hex,
+        hex::encode(computed_checksum.as_bytes())
+    );
 }
 
 #[test]
@@ -471,7 +486,7 @@ fn e2e_hd_derivation_multiple_paths_unique_seeds() {
         derived.push(s);
     }
     for i in 0..derived.len() {
-        for j in (i+1)..derived.len() {
+        for j in (i + 1)..derived.len() {
             assert_ne!(derived[i], derived[j]);
         }
     }
@@ -494,8 +509,10 @@ fn e2e_hd_full_key_reproducible_from_mnemonic() {
     let (pk2, sk2) = mldsa87::from_seed(&child2);
     assert_eq!(pk1.to_hex(), pk2.to_hex());
     assert_eq!(sk1.to_hex(), sk2.to_hex());
-    assert_eq!(address::derive_address(pk1.as_bytes()),
-               address::derive_address(pk2.as_bytes()));
+    assert_eq!(
+        address::derive_address(pk1.as_bytes()),
+        address::derive_address(pk2.as_bytes())
+    );
 
     // And the derived key actually signs/verifies.
     let msg = b"recovered key works";
@@ -507,8 +524,14 @@ fn e2e_hd_full_key_reproducible_from_mnemonic() {
 fn e2e_hd_distinct_paths_distinct_keys() {
     let phrase = mnemonic::generate_mnemonic();
     let seed = mnemonic::mnemonic_to_seed(&phrase).unwrap();
-    let (pk_a, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed, &hd_derivation::zap_path(0, 0, 0)));
-    let (pk_b, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed, &hd_derivation::zap_path(0, 0, 1)));
+    let (pk_a, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(
+        &seed,
+        &hd_derivation::zap_path(0, 0, 0),
+    ));
+    let (pk_b, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(
+        &seed,
+        &hd_derivation::zap_path(0, 0, 1),
+    ));
     assert_ne!(pk_a.to_hex(), pk_b.to_hex());
 }
 
@@ -673,7 +696,9 @@ fn e2e_keystore_nonce_unique_per_save() {
 fn e2e_change_password_unlock_with_new_password() {
     let vault = TestVault::new();
     vault.create("old_password").unwrap();
-    vault.change_password("old_password", "new_password").unwrap();
+    vault
+        .change_password("old_password", "new_password")
+        .unwrap();
 
     assert!(vault.unlock("new_password").unwrap());
     assert!(vault.unlock("old_password").is_err());

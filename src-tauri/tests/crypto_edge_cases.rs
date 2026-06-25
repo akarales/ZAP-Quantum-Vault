@@ -1,6 +1,6 @@
 use zap_quantum_vault_lib::crypto::{
-    mldsa87, mlkem1024, encryption, kdf, mnemonic, hd_derivation,
-    address, hash, vrf, hybrid_signing, threshold, proof_batch,
+    address, encryption, hash, hd_derivation, hybrid_signing, kdf, mldsa87, mlkem1024, mnemonic,
+    proof_batch, threshold, vrf,
 };
 
 // ==================== ML-DSA-87 Edge Cases ====================
@@ -217,13 +217,19 @@ fn test_mlkem_decapsulate_wrong_ciphertext() {
 #[test]
 fn test_mlkem_encapsulation_key_size_constant() {
     let kp = mlkem1024::KemKeyPair::generate();
-    assert_eq!(kp.encapsulation_key.len(), mlkem1024::ENCAPSULATION_KEY_SIZE);
+    assert_eq!(
+        kp.encapsulation_key.len(),
+        mlkem1024::ENCAPSULATION_KEY_SIZE
+    );
 }
 
 #[test]
 fn test_mlkem_decapsulation_seed_size_constant() {
     let kp = mlkem1024::KemKeyPair::generate();
-    assert_eq!(kp.decapsulation_seed.len(), mlkem1024::DECAPSULATION_SEED_SIZE);
+    assert_eq!(
+        kp.decapsulation_seed.len(),
+        mlkem1024::DECAPSULATION_SEED_SIZE
+    );
 }
 
 // ==================== Encryption Edge Cases ====================
@@ -774,7 +780,10 @@ fn test_hybrid_from_secret_deterministic() {
     let (_, sk) = mldsa87::generate();
     let signer1 = hybrid_signing::HybridSigner::from_secret(&sk).unwrap();
     let signer2 = hybrid_signing::HybridSigner::from_secret(&sk).unwrap();
-    assert_eq!(signer1.primary_public_key().as_bytes(), signer2.primary_public_key().as_bytes());
+    assert_eq!(
+        signer1.primary_public_key().as_bytes(),
+        signer2.primary_public_key().as_bytes()
+    );
 }
 
 #[test]
@@ -827,16 +836,26 @@ fn test_threshold_single_signer_threshold_one() {
 
 #[test]
 fn test_threshold_exact_threshold() {
-    let signers: Vec<_> = (0..3).map(|_| threshold::ThresholdSigner::generate(3).unwrap()).collect();
-    let shares: Vec<_> = signers.iter().map(|s| s.create_share(b"msg").unwrap()).collect();
+    let signers: Vec<_> = (0..3)
+        .map(|_| threshold::ThresholdSigner::generate(3).unwrap())
+        .collect();
+    let shares: Vec<_> = signers
+        .iter()
+        .map(|s| s.create_share(b"msg").unwrap())
+        .collect();
     let sig = threshold::ThresholdSigner::aggregate(b"msg", shares, 3).unwrap();
     assert!(threshold::ThresholdSigner::verify(&sig, b"msg").unwrap());
 }
 
 #[test]
 fn test_threshold_above_threshold() {
-    let signers: Vec<_> = (0..5).map(|_| threshold::ThresholdSigner::generate(3).unwrap()).collect();
-    let shares: Vec<_> = signers.iter().map(|s| s.create_share(b"msg").unwrap()).collect();
+    let signers: Vec<_> = (0..5)
+        .map(|_| threshold::ThresholdSigner::generate(3).unwrap())
+        .collect();
+    let shares: Vec<_> = signers
+        .iter()
+        .map(|s| s.create_share(b"msg").unwrap())
+        .collect();
     let sig = threshold::ThresholdSigner::aggregate(b"msg", shares, 3).unwrap();
     assert!(threshold::ThresholdSigner::verify(&sig, b"msg").unwrap());
 }
@@ -854,7 +873,10 @@ fn test_threshold_large_message() {
     let s1 = threshold::ThresholdSigner::generate(2).unwrap();
     let s2 = threshold::ThresholdSigner::generate(2).unwrap();
     let msg = vec![0x42; 100_000];
-    let shares = vec![s1.create_share(&msg).unwrap(), s2.create_share(&msg).unwrap()];
+    let shares = vec![
+        s1.create_share(&msg).unwrap(),
+        s2.create_share(&msg).unwrap(),
+    ];
     let sig = threshold::ThresholdSigner::aggregate(&msg, shares, 2).unwrap();
     assert!(threshold::ThresholdSigner::verify(&sig, &msg).unwrap());
 }
@@ -880,7 +902,9 @@ fn test_threshold_verify_tampered_threshold() {
 
 #[test]
 fn test_threshold_three_signers_two_threshold() {
-    let signers: Vec<_> = (0..3).map(|_| threshold::ThresholdSigner::generate(2).unwrap()).collect();
+    let signers: Vec<_> = (0..3)
+        .map(|_| threshold::ThresholdSigner::generate(2).unwrap())
+        .collect();
     let shares = vec![
         signers[0].create_share(b"test").unwrap(),
         signers[1].create_share(b"test").unwrap(),
@@ -893,12 +917,14 @@ fn test_threshold_three_signers_two_threshold() {
 
 #[test]
 fn test_proof_batch_two_elements() {
-    let hashes: Vec<[u8; 32]> = (0..2).map(|i| {
-        let mut h = blake3::Hasher::new();
-        h.update(b"test");
-        h.update(&(i as u64).to_le_bytes());
-        *h.finalize().as_bytes()
-    }).collect();
+    let hashes: Vec<[u8; 32]> = (0..2)
+        .map(|i| {
+            let mut h = blake3::Hasher::new();
+            h.update(b"test");
+            h.update(&(i as u64).to_le_bytes());
+            *h.finalize().as_bytes()
+        })
+        .collect();
     let batched = proof_batch::ProofBatcher::aggregate(hashes).unwrap();
     assert_eq!(batched.count, 2);
     assert!(proof_batch::ProofBatcher::verify(&batched).unwrap());
@@ -906,12 +932,14 @@ fn test_proof_batch_two_elements() {
 
 #[test]
 fn test_proof_batch_three_elements_odd() {
-    let hashes: Vec<[u8; 32]> = (0..3).map(|i| {
-        let mut h = blake3::Hasher::new();
-        h.update(b"test");
-        h.update(&(i as u64).to_le_bytes());
-        *h.finalize().as_bytes()
-    }).collect();
+    let hashes: Vec<[u8; 32]> = (0..3)
+        .map(|i| {
+            let mut h = blake3::Hasher::new();
+            h.update(b"test");
+            h.update(&(i as u64).to_le_bytes());
+            *h.finalize().as_bytes()
+        })
+        .collect();
     let batched = proof_batch::ProofBatcher::aggregate(hashes).unwrap();
     assert_eq!(batched.count, 3);
     assert!(proof_batch::ProofBatcher::verify(&batched).unwrap());
@@ -919,12 +947,14 @@ fn test_proof_batch_three_elements_odd() {
 
 #[test]
 fn test_proof_batch_large_batch() {
-    let hashes: Vec<[u8; 32]> = (0..100).map(|i| {
-        let mut h = blake3::Hasher::new();
-        h.update(b"test");
-        h.update(&(i as u64).to_le_bytes());
-        *h.finalize().as_bytes()
-    }).collect();
+    let hashes: Vec<[u8; 32]> = (0..100)
+        .map(|i| {
+            let mut h = blake3::Hasher::new();
+            h.update(b"test");
+            h.update(&(i as u64).to_le_bytes());
+            *h.finalize().as_bytes()
+        })
+        .collect();
     let batched = proof_batch::ProofBatcher::aggregate(hashes).unwrap();
     assert_eq!(batched.count, 100);
     assert!(proof_batch::ProofBatcher::verify(&batched).unwrap());
@@ -932,12 +962,14 @@ fn test_proof_batch_large_batch() {
 
 #[test]
 fn test_proof_batch_tampered_count() {
-    let hashes: Vec<[u8; 32]> = (0..5).map(|i| {
-        let mut h = blake3::Hasher::new();
-        h.update(b"test");
-        h.update(&(i as u64).to_le_bytes());
-        *h.finalize().as_bytes()
-    }).collect();
+    let hashes: Vec<[u8; 32]> = (0..5)
+        .map(|i| {
+            let mut h = blake3::Hasher::new();
+            h.update(b"test");
+            h.update(&(i as u64).to_le_bytes());
+            *h.finalize().as_bytes()
+        })
+        .collect();
     let mut batched = proof_batch::ProofBatcher::aggregate(hashes).unwrap();
     batched.count = 100;
     assert_eq!(batched.count, 100);

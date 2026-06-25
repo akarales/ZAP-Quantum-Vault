@@ -1,5 +1,5 @@
 use crate::crypto::mldsa87::{self, PublicKey, SecretKey, Signature};
-use ml_dsa::{Keypair, KeyExport};
+use ml_dsa::{KeyExport, Keypair};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,8 @@ pub struct HybridSigner {
 }
 
 fn derive_public_from_secret(secret: &SecretKey) -> Result<PublicKey, HybridSigningError> {
-    let seed_arr: [u8; mldsa87::SEED_SIZE] = secret.as_bytes()
+    let seed_arr: [u8; mldsa87::SEED_SIZE] = secret
+        .as_bytes()
         .try_into()
         .map_err(|_| HybridSigningError::PrimaryFailed("seed conversion failed".to_string()))?;
     let seed = ml_dsa::Seed::from(seed_arr);
@@ -187,7 +188,10 @@ mod tests {
     fn test_different_signers_different_keys() {
         let s1 = HybridSigner::generate().unwrap();
         let s2 = HybridSigner::generate().unwrap();
-        assert_ne!(s1.primary_public_key().as_bytes(), s2.primary_public_key().as_bytes());
+        assert_ne!(
+            s1.primary_public_key().as_bytes(),
+            s2.primary_public_key().as_bytes()
+        );
         assert_ne!(s1.secondary_public_key(), s2.secondary_public_key());
     }
 

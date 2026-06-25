@@ -1,12 +1,12 @@
+use crate::commands::keys::{secret_hex_for, KeyStore};
 use crate::crypto::mldsa87;
 use crate::error::{Result, VaultError};
-use crate::commands::keys::{KeyStore, secret_hex_for};
 use crate::models::airgap::{AirGapEnvelope, TransferType};
-use ml_dsa::{Keypair, KeyExport};
-use serde::{Deserialize, Serialize};
 use chrono::Utc;
+use ml_dsa::{KeyExport, Keypair};
 use rand::rngs::OsRng;
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::State;
@@ -74,7 +74,8 @@ fn parse_transfer_type(s: &str) -> TransferType {
 
 pub fn secret_to_public_hex(secret_hex: &str) -> Result<String> {
     let sk = mldsa87::SecretKey::from_hex(secret_hex)?;
-    let seed_arr: [u8; mldsa87::SEED_SIZE] = sk.as_bytes()
+    let seed_arr: [u8; mldsa87::SEED_SIZE] = sk
+        .as_bytes()
         .try_into()
         .map_err(|_| VaultError::Storage("seed conversion failed".to_string()))?;
     let seed = ml_dsa::Seed::from(seed_arr);
@@ -90,8 +91,7 @@ pub fn secret_to_public_hex(secret_hex: &str) -> Result<String> {
 /// with field-by-field.
 fn build_envelope(secret_key_hex: &str, payload_hex: &str, transfer_type: &str) -> Result<String> {
     let sk = mldsa87::SecretKey::from_hex(secret_key_hex)?;
-    let payload = hex::decode(payload_hex)
-        .map_err(|e| VaultError::Storage(e.to_string()))?;
+    let payload = hex::decode(payload_hex).map_err(|e| VaultError::Storage(e.to_string()))?;
 
     let tt = parse_transfer_type(transfer_type);
     let timestamp = Utc::now().timestamp() as u64;
@@ -148,14 +148,24 @@ pub fn verify_envelope(env: &AirGapEnvelope, now: u64) -> Result<()> {
     // Signature over the canonical message (binds nonce/timestamp/type/payload).
     let pk = mldsa87::PublicKey::from_hex(&env.public_key_hex)?;
     let sig = mldsa87::Signature::from_hex(&env.signature_hex)?;
-    let message = signing_message(env.version, &env.transfer_type, env.timestamp, &nonce, &payload);
+    let message = signing_message(
+        env.version,
+        &env.transfer_type,
+        env.timestamp,
+        &nonce,
+        &payload,
+    );
     if !mldsa87::verify(&pk, &message, &sig)? {
-        return Err(VaultError::AirGap("signature verification failed".to_string()));
+        return Err(VaultError::AirGap(
+            "signature verification failed".to_string(),
+        ));
     }
 
     // Freshness: reject far-future (beyond skew) and expired envelopes.
     if env.timestamp > now.saturating_add(MAX_SKEW_SECS) {
-        return Err(VaultError::AirGap("envelope timestamp is in the future".to_string()));
+        return Err(VaultError::AirGap(
+            "envelope timestamp is in the future".to_string(),
+        ));
     }
     if now > env.timestamp.saturating_add(MAX_AGE_SECS) {
         return Err(VaultError::AirGap("envelope has expired".to_string()));
@@ -169,14 +179,20 @@ pub fn verify_envelope(env: &AirGapEnvelope, now: u64) -> Result<()> {
 /// without Tauri managed state.
 pub fn record_nonce(seen: &mut HashSet<String>, nonce_hex: &str) -> Result<()> {
     if !seen.insert(nonce_hex.to_string()) {
-        return Err(VaultError::AirGap("envelope already consumed (replay)".to_string()));
+        return Err(VaultError::AirGap(
+            "envelope already consumed (replay)".to_string(),
+        ));
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn generate_qr(request: QrRequest) -> Result<String> {
-    build_envelope(&request.secret_key_hex, &request.payload_hex, &request.transfer_type)
+    build_envelope(
+        &request.secret_key_hex,
+        &request.payload_hex,
+        &request.transfer_type,
+    )
 }
 
 /// Generate a signed air-gap envelope for a stored key, resolving the secret
