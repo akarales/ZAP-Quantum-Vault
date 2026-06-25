@@ -9,6 +9,20 @@ pub const ARGON2_PARALLELISM: u32 = 4;
 pub const SALT_SIZE: usize = 16;
 pub const MASTER_KEY_SIZE: usize = 32;
 
+/// Current KDF profile version. Stored per-vault so the parameters used to
+/// create a vault are always reproducible, and future bumps never break
+/// existing vaults (each vault carries the params it was built with).
+pub const KDF_VERSION: u32 = 1;
+
+/// High-security profile for an offline, air-gapped vault (RFC 9106 "first
+/// recommended"-class). Memory-hard at ~1 GiB to maximize the cost of an
+/// offline brute-force on dedicated hardware, accepting a ~1-2s unlock. This is
+/// appropriate here because the vault is unlocked rarely and interactively,
+/// unlike a high-throughput server.
+pub const ARGON2_HIGH_MEMORY_KIB: u32 = 1_048_576; // 1 GiB
+pub const ARGON2_HIGH_ITERATIONS: u32 = 1;
+pub const ARGON2_HIGH_PARALLELISM: u32 = 4;
+
 #[derive(Debug, Error)]
 pub enum KdfError {
     #[error("Argon2id derivation failed: {0}")]
@@ -17,7 +31,53 @@ pub enum KdfError {
     InvalidSaltSize { expected: usize, got: usize },
 }
 
+/// Tunable Argon2id parameters persisted alongside a vault so its key
+/// derivation is fully reproducible regardless of future default changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KdfParams {
+    pub memory_kib: u32,
+    pub iterations: u32,
+    pub parallelism: u32,
+}
+
+impl KdfParams {
+    /// The default profile for newly created vaults (high-security offline).
+    pub fn high() -> Self {
+        Self {
+            memory_kib: ARGON2_HIGH_MEMORY_KIB,
+            iterations: ARGON2_HIGH_ITERATIONS,
+            parallelism: ARGON2_HIGH_PARALLELISM,
+        }
+    }
+
+    /// The legacy/interactive profile (64 MiB, t=3). Kept for tests and any
+    /// vaults explicitly built with it.
+    pub fn legacy() -> Self {
+        Self {
+            memory_kib: ARGON2_MEMORY_KIB,
+            iterations: ARGON2_ITERATIONS,
+            parallelism: ARGON2_PARALLELISM,
+        }
+    }
+}
+
+impl Default for KdfParams {
+    fn default() -> Self {
+        Self::high()
+    }
+}
+
 pub fn derive_master_key(password: &[u8], salt: &[u8]) -> Result<[u8; MASTER_KEY_SIZE], KdfError> {
+    derive_master_key_with_params(password, salt, KdfParams::legacy())
+}
+
+/// Derive the master key using explicit Argon2id parameters. This is the single
+/// primitive; `derive_master_key` is the legacy-profile convenience wrapper.
+pub fn derive_master_key_with_params(
+    password: &[u8],
+    salt: &[u8],
+    p: KdfParams,
+) -> Result<[u8; MASTER_KEY_SIZE], KdfError> {
     if salt.len() != SALT_SIZE {
         return Err(KdfError::InvalidSaltSize {
             expected: SALT_SIZE,
@@ -25,7 +85,7 @@ pub fn derive_master_key(password: &[u8], salt: &[u8]) -> Result<[u8; MASTER_KEY
         });
     }
 
-    let params = Params::new(ARGON2_MEMORY_KIB, ARGON2_ITERATIONS, ARGON2_PARALLELISM, Some(MASTER_KEY_SIZE))
+    let params = Params::new(p.memory_kib, p.iterations, p.parallelism, Some(MASTER_KEY_SIZE))
         .map_err(|e| KdfError::DerivationFailed(e.to_string()))?;
 
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
@@ -53,8 +113,19 @@ pub fn derive_master_key_with_factor(
     hardware_response: Option<&[u8]>,
     salt: &[u8],
 ) -> Result<[u8; MASTER_KEY_SIZE], KdfError> {
+    derive_master_key_with_factor_params(password, hardware_response, salt, KdfParams::legacy())
+}
+
+/// As [`derive_master_key_with_factor`], but with explicit Argon2id parameters
+/// so the vault's stored profile drives the (expensive) derivation.
+pub fn derive_master_key_with_factor_params(
+    password: &[u8],
+    hardware_response: Option<&[u8]>,
+    salt: &[u8],
+    p: KdfParams,
+) -> Result<[u8; MASTER_KEY_SIZE], KdfError> {
     match hardware_response {
-        None => derive_master_key(password, salt),
+        None => derive_master_key_with_params(password, salt, p),
         Some(response) => {
             let mut hasher = blake3::Hasher::new();
             hasher.update(b"ZAP_VAULT_2FA_v1");
@@ -63,7 +134,7 @@ pub fn derive_master_key_with_factor(
             hasher.update(&(response.len() as u64).to_le_bytes());
             hasher.update(response);
             let combined = hasher.finalize();
-            derive_master_key(combined.as_bytes(), salt)
+            derive_master_key_with_params(combined.as_bytes(), salt, p)
         }
     }
 }

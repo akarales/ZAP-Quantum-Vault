@@ -55,7 +55,9 @@ function KeyRow({ entry, index }: { entry: KeyEntry; index: number }) {
             <KeyTypeBadge type={entry.metadata.key_type} />
           </div>
           <p className="text-xs text-muted-foreground">
-            Purpose: {entry.metadata.purpose} · Account: {entry.metadata.account} · Index: {entry.metadata.index}
+            {entry.metadata.derivation_path
+              ? entry.metadata.derivation_path
+              : `Purpose: ${entry.metadata.purpose} · Account: ${entry.metadata.account} · Index: ${entry.metadata.index}`}
           </p>
         </div>
         <span className="text-xs text-muted-foreground">
@@ -79,6 +81,18 @@ function KeyRow({ entry, index }: { entry: KeyEntry; index: number }) {
                 </div>
                 <p className="rounded-md bg-muted px-3 py-2 text-xs font-mono break-all">{addr}</p>
               </div>
+              {entry.metadata.derivation_path && (
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Derivation Path</label>
+                    <CopyButton text={entry.metadata.derivation_path} />
+                  </div>
+                  <p className="rounded-md bg-muted px-3 py-2 text-xs font-mono break-all">{entry.metadata.derivation_path}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Deterministically derived from your recovery phrase &mdash; the same path always restores this exact key.
+                  </p>
+                </div>
+              )}
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Public Key</label>

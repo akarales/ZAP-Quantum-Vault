@@ -2,7 +2,7 @@ use tauri::{State, AppHandle, Manager};
 use std::sync::Mutex;
 use std::path::{Path, PathBuf};
 use crate::error::{Result, VaultError};
-use crate::crypto::{mldsa87, address, encryption};
+use crate::crypto::{mldsa87, address, encryption, hd_derivation};
 use crate::crypto::encryption::Ciphertext;
 use crate::models::key::{KeyEntry, KeyEntryPublic, KeyType};
 use crate::commands::vault::VaultMutex;
@@ -15,6 +15,11 @@ pub struct KeyStore(pub Mutex<Vec<KeyEntry>>);
 /// `Zeroizing` so its bytes are wiped from memory as soon as the session is
 /// replaced (re-key) or cleared (lock).
 pub struct SessionKey(pub Mutex<Option<Zeroizing<[u8; 32]>>>);
+
+/// Holds the decrypted BIP39 master seed (64 bytes) for the current unlocked
+/// session — the root of the HD key tree. `None` whenever the vault is locked.
+/// Wrapped in `Zeroizing` so it is wiped from memory on lock or session swap.
+pub struct MasterSeed(pub Mutex<Option<Zeroizing<[u8; 64]>>>);
 
 /// The app's local data directory, created if missing. On Unix the directory is
 /// restricted to owner-only access (`0700`) so other local users can't list or
@@ -131,6 +136,7 @@ pub fn generate_key(
     vault: State<'_, VaultMutex>,
     keystore: State<'_, KeyStore>,
     session: State<'_, SessionKey>,
+    master_seed: State<'_, MasterSeed>,
 ) -> Result<KeyEntryPublic> {
     let session_key = {
         let guard = session.0.lock().unwrap();
@@ -138,7 +144,18 @@ pub fn generate_key(
     };
     let keys_file = vault.0.lock().unwrap().keys_file.clone();
 
-    let (pk, sk) = mldsa87::generate();
+    // Deterministically derive the key from the HD master seed at the requested
+    // path, so the same purpose/account/index always yields the same key and the
+    // whole tree is recoverable from the mnemonic.
+    let path = hd_derivation::zap_path(purpose, account, index);
+    let path_str = path.to_string();
+
+    let (pk, sk) = {
+        let guard = master_seed.0.lock().unwrap();
+        let seed = guard.as_ref().ok_or(VaultError::NotInitialized)?;
+        let derived = hd_derivation::derive_seed_from_master(seed, &path);
+        mldsa87::from_seed(&derived)
+    };
     let addr = address::derive_address(pk.as_bytes());
 
     let kt = match key_type.as_str() {
@@ -153,6 +170,15 @@ pub fn generate_key(
         _ => KeyType::Custom,
     };
 
+    let mut store = keystore.0.lock().unwrap();
+    // Deterministic derivation means re-using a path would silently duplicate an
+    // existing key; reject it so the user picks a fresh index instead.
+    if store.iter().any(|k| k.metadata.derivation_path == path_str) {
+        return Err(VaultError::Storage(format!(
+            "a key already exists at {path_str}; choose a different index"
+        )));
+    }
+
     let entry = KeyEntry::new(
         kt,
         purpose,
@@ -161,9 +187,9 @@ pub fn generate_key(
         &pk.to_hex(),
         &sk.to_hex(),
         &addr,
+        &path_str,
     );
 
-    let mut store = keystore.0.lock().unwrap();
     store.push(entry.clone());
     save_keys(&app, &keys_file, &session_key, &store)?;
     Ok(entry.to_public())

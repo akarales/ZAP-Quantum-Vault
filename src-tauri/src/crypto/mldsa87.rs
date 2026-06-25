@@ -121,6 +121,18 @@ pub fn generate() -> (PublicKey, SecretKey) {
     )
 }
 
+/// Deterministically derive an ML-DSA-87 keypair from a 32-byte seed. Given the
+/// same seed, this always yields the same keypair (FIPS-204 keygen is seeded by
+/// the 32-byte `xi`), which is what makes hierarchical-deterministic derivation
+/// possible: a per-path seed in, a reproducible quantum-safe key out.
+pub fn from_seed(seed: &[u8; SEED_SIZE]) -> (PublicKey, SecretKey) {
+    let seed_obj = Seed::from(*seed);
+    let sk = MlSigningKey::<MlDsa87>::new(&seed_obj);
+    let pk = sk.verifying_key();
+    let pk_bytes: EncodedVerifyingKey<MlDsa87> = pk.to_bytes();
+    (PublicKey(pk_bytes.to_vec()), SecretKey(seed.to_vec()))
+}
+
 pub fn sign(secret: &SecretKey, message: &[u8]) -> Result<Signature, CryptoError> {
     if secret.0.len() != SEED_SIZE {
         return Err(CryptoError::InvalidKeySize {
@@ -222,6 +234,35 @@ mod tests {
         let restored = Signature::from_hex(&hex).unwrap();
         assert_eq!(sig.0, restored.0);
         assert!(verify(&pk, b"test", &restored).unwrap());
+    }
+
+    #[test]
+    fn test_from_seed_is_deterministic() {
+        // The HD invariant: the same 32-byte seed always derives the same
+        // ML-DSA-87 keypair (public key + secret seed).
+        let seed = [0x42u8; SEED_SIZE];
+        let (pk1, sk1) = from_seed(&seed);
+        let (pk2, sk2) = from_seed(&seed);
+        assert_eq!(pk1.0, pk2.0);
+        assert_eq!(sk1.0, sk2.0);
+        assert_eq!(sk1.0, seed.to_vec());
+    }
+
+    #[test]
+    fn test_from_seed_different_seeds_differ() {
+        let (pk1, _) = from_seed(&[1u8; SEED_SIZE]);
+        let (pk2, _) = from_seed(&[2u8; SEED_SIZE]);
+        assert_ne!(pk1.0, pk2.0);
+    }
+
+    #[test]
+    fn test_from_seed_key_signs_and_verifies() {
+        // A deterministically-derived key must produce valid signatures.
+        let seed = [0x7Au8; SEED_SIZE];
+        let (pk, sk) = from_seed(&seed);
+        let msg = b"deterministic HD key signing";
+        let sig = sign(&sk, msg).unwrap();
+        assert!(verify(&pk, msg, &sig).unwrap());
     }
 
     #[test]

@@ -30,6 +30,7 @@ fn sample_key_entries(n: usize) -> Vec<KeyEntry> {
                 &pk.to_hex(),
                 &sk.to_hex(),
                 &addr,
+                &hd_derivation::zap_path(44, 0, i as u32).to_string(),
             )
         })
         .collect()
@@ -239,6 +240,7 @@ fn e2e_key_entry_creation() {
         &pk.to_hex(),
         &sk.to_hex(),
         &addr,
+        &hd_derivation::zap_path(44, 0, 0).to_string(),
     );
     assert!(!entry.id.is_empty());
     assert_eq!(entry.public_key_hex, pk.to_hex());
@@ -256,7 +258,7 @@ fn e2e_key_entry_all_types() {
     for kt in types {
         let (pk, sk) = mldsa87::generate();
         let addr = address::derive_address(pk.as_bytes());
-        let entry = KeyEntry::new(kt, 44, 0, 0, &pk.to_hex(), &sk.to_hex(), &addr);
+        let entry = KeyEntry::new(kt, 44, 0, 0, &pk.to_hex(), &sk.to_hex(), &addr, &hd_derivation::zap_path(44, 0, 0).to_string());
         assert!(!entry.id.is_empty());
     }
 }
@@ -473,6 +475,52 @@ fn e2e_hd_derivation_multiple_paths_unique_seeds() {
             assert_ne!(derived[i], derived[j]);
         }
     }
+}
+
+#[test]
+fn e2e_hd_full_key_reproducible_from_mnemonic() {
+    // The end-to-end recovery guarantee: a mnemonic + ZAP path deterministically
+    // derives the same ML-DSA-87 keypair and address every time. This is what
+    // lets a user restore every key from just the 24 words.
+    let phrase = mnemonic::generate_mnemonic();
+    let seed = mnemonic::mnemonic_to_seed(&phrase).unwrap();
+
+    let path = hd_derivation::zap_path(0, 0, 0);
+    let child1 = hd_derivation::derive_seed_from_master(&seed, &path);
+    let child2 = hd_derivation::derive_seed_from_master(&seed, &path);
+    assert_eq!(child1, child2);
+
+    let (pk1, sk1) = mldsa87::from_seed(&child1);
+    let (pk2, sk2) = mldsa87::from_seed(&child2);
+    assert_eq!(pk1.to_hex(), pk2.to_hex());
+    assert_eq!(sk1.to_hex(), sk2.to_hex());
+    assert_eq!(address::derive_address(pk1.as_bytes()),
+               address::derive_address(pk2.as_bytes()));
+
+    // And the derived key actually signs/verifies.
+    let msg = b"recovered key works";
+    let sig = mldsa87::sign(&sk1, msg).unwrap();
+    assert!(mldsa87::verify(&pk1, msg, &sig).unwrap());
+}
+
+#[test]
+fn e2e_hd_distinct_paths_distinct_keys() {
+    let phrase = mnemonic::generate_mnemonic();
+    let seed = mnemonic::mnemonic_to_seed(&phrase).unwrap();
+    let (pk_a, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed, &hd_derivation::zap_path(0, 0, 0)));
+    let (pk_b, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed, &hd_derivation::zap_path(0, 0, 1)));
+    assert_ne!(pk_a.to_hex(), pk_b.to_hex());
+}
+
+#[test]
+fn e2e_vault_state_kdf_and_seed_defaults_for_legacy_json() {
+    // A vault.json written before the KDF block / master seed existed must still
+    // deserialize, defaulting to the legacy 64 MiB profile and an empty seed.
+    let legacy = r#"{"initialized":true,"salt_hex":"00","verifier_hash_hex":"aa:bb"}"#;
+    let state: VaultState = serde_json::from_str(legacy).unwrap();
+    assert_eq!(state.argon2_memory_kib, kdf::ARGON2_MEMORY_KIB);
+    assert_eq!(state.argon2_iterations, kdf::ARGON2_ITERATIONS);
+    assert!(state.master_seed_enc_hex.is_empty());
 }
 
 #[test]

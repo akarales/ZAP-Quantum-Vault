@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege capability for the main window. Grants only the Tauri core defaults; this vault exposes its functionality through its own backend commands (always permitted) and intentionally enables no extra plugin or filesystem permissions to the webview.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

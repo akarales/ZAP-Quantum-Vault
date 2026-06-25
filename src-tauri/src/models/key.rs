@@ -23,6 +23,10 @@ pub struct KeyMetadata {
     pub address: String,
     pub created_at: DateTime<Utc>,
     pub label: Option<String>,
+    /// The HD derivation path this key was deterministically derived from
+    /// (e.g. `m/44'/9999'/0'/0'/0'`). Empty for non-HD/legacy keys.
+    #[serde(default)]
+    pub derivation_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +68,7 @@ impl KeyEntry {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         key_type: KeyType,
         purpose: u32,
@@ -72,6 +77,7 @@ impl KeyEntry {
         public_key_hex: &str,
         encrypted_secret_hex: &str,
         address: &str,
+        derivation_path: &str,
     ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -83,6 +89,7 @@ impl KeyEntry {
                 address: address.to_string(),
                 created_at: Utc::now(),
                 label: None,
+                derivation_path: derivation_path.to_string(),
             },
             public_key_hex: public_key_hex.to_string(),
             encrypted_secret_hex: encrypted_secret_hex.to_string(),
@@ -95,7 +102,7 @@ mod tests {
     use super::*;
 
     fn sample() -> KeyEntry {
-        KeyEntry::new(KeyType::User, 44, 0, 0, "aabbcc", "deadbeefcafe", "zap1qtest")
+        KeyEntry::new(KeyType::User, 44, 0, 0, "aabbcc", "deadbeefcafe", "zap1qtest", "m/44'/9999'/0'/0'/0'")
     }
 
     #[test]

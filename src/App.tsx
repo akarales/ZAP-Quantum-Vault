@@ -9,11 +9,26 @@ import { AirGapPage } from "./pages/AirGapPage";
 import { BackupPage } from "./pages/BackupPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AuthPage } from "./pages/AuthPage";
+import { MnemonicBackup } from "./components/auth/MnemonicBackup";
 import { Sidebar } from "./components/layout/Sidebar";
 import { useAuthStore } from "./store/authStore";
 
 export default function App() {
   const isUnlocked = useAuthStore((s) => s.isUnlocked);
+  const mnemonic = useAuthStore((s) => s.mnemonic);
+
+  // After creating a vault the user is unlocked but must first back up their
+  // freshly generated recovery phrase (shown only once).
+  if (isUnlocked && mnemonic) {
+    return (
+      <ThemeProvider>
+        <TooltipProvider>
+          <MnemonicBackup />
+          <Toaster position="top-right" richColors />
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+  }
 
   if (!isUnlocked) {
     return (
