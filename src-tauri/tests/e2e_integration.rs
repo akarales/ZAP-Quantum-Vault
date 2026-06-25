@@ -1090,3 +1090,107 @@ fn e2e_atomic_write_overwrite_keeps_owner_only() {
     assert_eq!(mode, 0o600, "expected 0600 after overwrite, got {:o}", mode);
     assert_eq!(contents, b"second, longer contents");
 }
+
+// ==================== KDF Params Persistence E2E ====================
+
+#[test]
+fn e2e_vault_state_high_kdf_profile_roundtrips() {
+    // A vault created with the high (1 GiB) profile must serialize and deserialize
+    // its Argon2 params losslessly, so it always re-derives with the same cost.
+    let high = kdf::KdfParams::high();
+    let state = VaultState {
+        initialized: true,
+        argon2_memory_kib: high.memory_kib,
+        argon2_iterations: high.iterations,
+        argon2_parallelism: high.parallelism,
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&state).unwrap();
+    let parsed: VaultState = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.kdf_params(), high);
+    assert_eq!(parsed.argon2_memory_kib, 1_048_576);
+}
+
+#[test]
+fn e2e_vault_state_serde_defaults_are_legacy_profile() {
+    // `VaultState::default()` mirrors the serde defaults used when reading a
+    // pre-KDF-block vault.json, so it must report the LEGACY profile. (New vaults
+    // are created with the high profile explicitly in `init_vault_with_seed`, not
+    // via Default.) This guards that legacy vaults still re-derive correctly.
+    let state = VaultState::default();
+    assert_eq!(state.kdf_params(), kdf::KdfParams::legacy());
+}
+
+// ==================== Full Mnemonic Recovery E2E ====================
+
+#[test]
+fn e2e_recovery_regenerates_identical_keyset_from_mnemonic() {
+    // Simulate the full recovery guarantee: a user generates a set of keys, then on
+    // a fresh machine restores from the SAME 24 words and regenerates the SAME
+    // paths — every public key and address must match exactly. This is what makes
+    // the wallet recoverable from the phrase alone.
+    let phrase = mnemonic::generate_mnemonic();
+
+    // Original device: derive the master seed and a keyset across several paths.
+    let original_seed = mnemonic::mnemonic_to_seed(&phrase).unwrap();
+    let paths = [(44, 0, 0), (44, 0, 1), (44, 1, 0), (9, 9, 9)];
+    let original: Vec<(Vec<u8>, String)> = paths
+        .iter()
+        .map(|&(p, a, i)| {
+            let child = hd_derivation::derive_seed_from_master(
+                &original_seed,
+                &hd_derivation::zap_path(p, a, i),
+            );
+            let (pk, _) = mldsa87::from_seed(&child);
+            (
+                pk.as_bytes().to_vec(),
+                address::derive_address(pk.as_bytes()),
+            )
+        })
+        .collect();
+
+    // Recovery device: same phrase ⇒ same master seed ⇒ same keyset.
+    let restored_seed = mnemonic::mnemonic_to_seed(&phrase).unwrap();
+    assert_eq!(restored_seed, original_seed);
+    for (idx, &(p, a, i)) in paths.iter().enumerate() {
+        let child = hd_derivation::derive_seed_from_master(
+            &restored_seed,
+            &hd_derivation::zap_path(p, a, i),
+        );
+        let (pk, _) = mldsa87::from_seed(&child);
+        assert_eq!(
+            pk.as_bytes(),
+            original[idx].0.as_slice(),
+            "pubkey mismatch at {p}/{a}/{i}"
+        );
+        assert_eq!(
+            address::derive_address(pk.as_bytes()),
+            original[idx].1,
+            "address mismatch at {p}/{a}/{i}"
+        );
+    }
+}
+
+#[test]
+fn e2e_wrong_mnemonic_recovers_different_keyset() {
+    // Restoring from a DIFFERENT phrase must NOT reproduce the original keys.
+    let phrase_a = mnemonic::generate_mnemonic();
+    let phrase_b = mnemonic::generate_mnemonic();
+    let path = hd_derivation::zap_path(44, 0, 0);
+
+    let seed_a = mnemonic::mnemonic_to_seed(&phrase_a).unwrap();
+    let seed_b = mnemonic::mnemonic_to_seed(&phrase_b).unwrap();
+    let (pk_a, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed_a, &path));
+    let (pk_b, _) = mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed_b, &path));
+    assert_ne!(pk_a.as_bytes(), pk_b.as_bytes());
+}
+
+#[test]
+fn e2e_invalid_recovery_phrase_rejected() {
+    // A phrase that fails the BIP39 checksum must be rejected before any derivation.
+    assert!(mnemonic::validate_mnemonic("not a valid bip39 recovery phrase at all").is_err());
+    // A 24-word-shaped but invalid-checksum phrase is also rejected.
+    let bad = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo \
+zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo";
+    assert!(mnemonic::validate_mnemonic(bad).is_err());
+}

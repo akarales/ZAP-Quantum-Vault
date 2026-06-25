@@ -1009,3 +1009,164 @@ fn test_proof_batch_duplicate_hashes() {
     assert_eq!(batched.count, 3);
     assert!(proof_batch::ProofBatcher::verify(&batched).unwrap());
 }
+
+// ==================== HD Derivation Path Edge Cases ====================
+
+#[test]
+fn test_keypath_parse_rejects_too_deep() {
+    // Purpose + account + 6 indices = 6 indices > max of 5.
+    let too_deep = "m/44'/9999'/0'/0'/0'/0'/0'/0'";
+    assert!(hd_derivation::KeyPath::parse(too_deep).is_err());
+}
+
+#[test]
+fn test_keypath_parse_rejects_single_component() {
+    // A path must have at least purpose/account.
+    assert!(hd_derivation::KeyPath::parse("m/44'").is_err());
+}
+
+#[test]
+fn test_keypath_parse_rejects_non_numeric() {
+    assert!(hd_derivation::KeyPath::parse("m/zz'/0'").is_err());
+}
+
+#[test]
+fn test_keypath_display_matches_zap_path() {
+    // The Display impl must render the canonical, fully-hardened ZAP path.
+    let p = hd_derivation::zap_path(7, 3, 5);
+    assert_eq!(format!("{p}"), "m/44'/9999'/7'/3'/5'");
+    assert_eq!(p.to_string(), "m/44'/9999'/7'/3'/5'");
+}
+
+#[test]
+fn test_zap_path_seed_uniqueness_across_many_indices() {
+    // Every distinct leaf index must derive a distinct child seed from one master.
+    let master = [0x5Au8; 64];
+    let mut seen = std::collections::HashSet::new();
+    for i in 0..256u32 {
+        let seed =
+            hd_derivation::derive_seed_from_master(&master, &hd_derivation::zap_path(0, 0, i));
+        assert!(seen.insert(seed), "duplicate child seed at index {i}");
+    }
+    assert_eq!(seen.len(), 256);
+}
+
+#[test]
+fn test_zap_path_different_master_different_child() {
+    // The same path under two different masters must not collide.
+    let a = hd_derivation::derive_seed_from_master(&[1u8; 64], &hd_derivation::zap_path(0, 0, 0));
+    let b = hd_derivation::derive_seed_from_master(&[2u8; 64], &hd_derivation::zap_path(0, 0, 0));
+    assert_ne!(a, b);
+}
+
+// ==================== HD → ML-DSA-87 Recovery Edge Cases ====================
+
+#[test]
+fn test_full_recovery_same_mnemonic_same_key_and_address() {
+    // The end-to-end recovery guarantee at the crypto layer: identical mnemonic +
+    // identical path ⇒ identical keypair AND identical address.
+    let phrase = mnemonic::generate_mnemonic();
+    let seed = mnemonic::mnemonic_to_seed(&phrase).unwrap();
+    let path = hd_derivation::zap_path(44, 0, 0);
+
+    let child1 = hd_derivation::derive_seed_from_master(&seed, &path);
+    let child2 = hd_derivation::derive_seed_from_master(&seed, &path);
+    let (pk1, sk1) = mldsa87::from_seed(&child1);
+    let (pk2, sk2) = mldsa87::from_seed(&child2);
+
+    assert_eq!(pk1.as_bytes(), pk2.as_bytes());
+    assert_eq!(sk1.as_bytes(), sk2.as_bytes());
+    assert_eq!(
+        address::derive_address(pk1.as_bytes()),
+        address::derive_address(pk2.as_bytes())
+    );
+}
+
+#[test]
+fn test_recovery_with_passphrase_yields_different_wallet() {
+    // A BIP39 passphrase ("25th word") must derive a different, independent wallet
+    // from the same words, with no key collision at the same path.
+    let phrase = mnemonic::generate_mnemonic();
+    let path = hd_derivation::zap_path(0, 0, 0);
+
+    let seed_plain = mnemonic::mnemonic_to_seed_with_passphrase(&phrase, "").unwrap();
+    let seed_pass = mnemonic::mnemonic_to_seed_with_passphrase(&phrase, "extra secret").unwrap();
+
+    let (pk_plain, _) =
+        mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed_plain, &path));
+    let (pk_pass, _) =
+        mldsa87::from_seed(&hd_derivation::derive_seed_from_master(&seed_pass, &path));
+    assert_ne!(pk_plain.as_bytes(), pk_pass.as_bytes());
+}
+
+// ==================== Hybrid Signing Edge Cases ====================
+
+#[test]
+fn test_hybrid_cross_key_secondary_rejected() {
+    // A signature whose secondary public key is swapped for another signer's must
+    // fail (the secondary signature won't verify under the wrong key).
+    let signer_a = hybrid_signing::HybridSigner::generate().unwrap();
+    let signer_b = hybrid_signing::HybridSigner::generate().unwrap();
+    let mut sig = signer_a.sign(b"payment").unwrap();
+    sig.secondary_public_key = *signer_b.secondary_public_key();
+    assert!(hybrid_signing::HybridSigner::verify(b"payment", &sig).is_err());
+}
+
+#[test]
+fn test_hybrid_cross_key_primary_rejected() {
+    // Swapping in another signer's primary public key must fail primary verification.
+    let signer_a = hybrid_signing::HybridSigner::generate().unwrap();
+    let signer_b = hybrid_signing::HybridSigner::generate().unwrap();
+    let mut sig = signer_a.sign(b"payment").unwrap();
+    sig.primary_public_key = signer_b.primary_public_key().as_bytes().to_vec();
+    assert!(hybrid_signing::HybridSigner::verify(b"payment", &sig).is_err());
+}
+
+#[test]
+fn test_hybrid_empty_message_round_trip() {
+    let signer = hybrid_signing::HybridSigner::generate().unwrap();
+    let sig = signer.sign(b"").unwrap();
+    assert!(hybrid_signing::HybridSigner::verify(b"", &sig).is_ok());
+}
+
+#[test]
+fn test_hybrid_from_seed_recovers_identical_identity() {
+    // The hybrid identity must be fully reproducible from the primary ML-DSA seed,
+    // so HD recovery restores both the PQC and classical halves.
+    let seed = [0x9Cu8; mldsa87::SEED_SIZE];
+    let (_, sk) = mldsa87::from_seed(&seed);
+    let a = hybrid_signing::HybridSigner::from_secret(&sk).unwrap();
+    let b = hybrid_signing::HybridSigner::from_secret(&sk).unwrap();
+    assert_eq!(a.secondary_public_key(), b.secondary_public_key());
+    assert_eq!(
+        a.primary_public_key().as_bytes(),
+        b.primary_public_key().as_bytes()
+    );
+    // And a signature from the recovered identity verifies.
+    let sig = b.sign(b"recovered").unwrap();
+    assert!(hybrid_signing::HybridSigner::verify(b"recovered", &sig).is_ok());
+}
+
+// ==================== KDF Profile / Factor Edge Cases ====================
+
+#[test]
+fn test_kdf_high_and_legacy_profiles_differ() {
+    // The high (1 GiB) and legacy (64 MiB) profiles must derive different keys for
+    // the same password+salt, confirming params actually drive the derivation.
+    let salt = [0x11u8; kdf::SALT_SIZE];
+    let high = kdf::derive_master_key_with_params(b"pw", &salt, kdf::KdfParams::high()).unwrap();
+    let legacy =
+        kdf::derive_master_key_with_params(b"pw", &salt, kdf::KdfParams::legacy()).unwrap();
+    assert_ne!(high, legacy);
+}
+
+#[test]
+fn test_kdf_factor_params_match_plain_when_no_response() {
+    // With no hardware response, the factor+params variant must equal the plain
+    // params variant (password-only vaults unaffected by the 2FA code path).
+    let salt = [0x22u8; kdf::SALT_SIZE];
+    let p = kdf::KdfParams::high();
+    let plain = kdf::derive_master_key_with_params(b"pw", &salt, p).unwrap();
+    let factor_none = kdf::derive_master_key_with_factor_params(b"pw", None, &salt, p).unwrap();
+    assert_eq!(plain, factor_none);
+}
