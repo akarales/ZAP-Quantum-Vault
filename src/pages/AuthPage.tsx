@@ -36,6 +36,9 @@ export function AuthPage() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const [yubikeyEnabled, setYubikeyEnabled] = useState(false);
+  // When creating a vault, the user can switch to restoring from a phrase.
+  const [restoreMode, setRestoreMode] = useState(false);
+  const [recoveryPhrase, setRecoveryPhrase] = useState("");
 
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const statusChecked = useAuthStore((s) => s.statusChecked);
@@ -44,6 +47,7 @@ export function AuthPage() {
   const checkStatus = useAuthStore((s) => s.checkStatus);
   const unlock = useAuthStore((s) => s.unlock);
   const initialize = useAuthStore((s) => s.initialize);
+  const restore = useAuthStore((s) => s.restore);
   const clearError = useAuthStore((s) => s.clearError);
 
   useEffect(() => {
@@ -62,15 +66,20 @@ export function AuthPage() {
 
   const strength = useMemo(() => evaluatePassword(password), [password]);
   const passwordsMatch = password === confirmPassword;
+  const recoveryWordCount = recoveryPhrase.trim().split(/\s+/).filter(Boolean).length;
   const canSubmit = isInitialized
     ? password.length > 0
-    : password.length >= 8 && passwordsMatch;
+    : restoreMode
+      ? password.length >= 8 && passwordsMatch && recoveryWordCount === 24
+      : password.length >= 8 && passwordsMatch;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
     if (isInitialized) {
       await unlock(password);
+    } else if (restoreMode) {
+      await restore(recoveryPhrase.trim().replace(/\s+/g, " "), password);
     } else {
       await initialize(password);
     }
@@ -123,7 +132,9 @@ export function AuthPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 {isInitialized
                   ? "Enter your password to unlock"
-                  : "Create a new quantum-safe vault"}
+                  : restoreMode
+                    ? "Restore your vault from a recovery phrase"
+                    : "Create a new quantum-safe vault"}
               </p>
             </div>
           </div>
@@ -192,6 +203,29 @@ export function AuthPage() {
               </div>
             )}
 
+            {!isInitialized && restoreMode && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="space-y-2"
+              >
+                <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Recovery Phrase (24 words)
+                </label>
+                <textarea
+                  value={recoveryPhrase}
+                  onChange={(e) => setRecoveryPhrase(e.target.value)}
+                  rows={3}
+                  spellCheck={false}
+                  placeholder="word1 word2 word3 …"
+                  className="w-full resize-none rounded-md border border-input bg-background/50 px-3 py-2 text-sm font-mono outline-none focus:border-primary"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {recoveryWordCount}/24 words
+                </p>
+              </motion.div>
+            )}
+
             {!isInitialized && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
@@ -239,12 +273,27 @@ export function AuthPage() {
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <>
-                  {isInitialized ? "Unlock Vault" : "Create Vault"}
+                  {isInitialized ? "Unlock Vault" : restoreMode ? "Restore Vault" : "Create Vault"}
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
             </Button>
           </form>
+
+          {!isInitialized && (
+            <button
+              type="button"
+              onClick={() => {
+                clearError();
+                setRestoreMode((m) => !m);
+              }}
+              className="mt-4 w-full text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {restoreMode
+                ? "← Back to creating a new vault"
+                : "Restore from an existing recovery phrase"}
+            </button>
+          )}
 
           <div className="mt-6 flex items-center justify-center gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">

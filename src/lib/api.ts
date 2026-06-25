@@ -10,8 +10,14 @@ export interface KeyEntry {
     address: string;
     created_at: string;
     label: string | null;
+    derivation_path: string;
   };
   public_key_hex: string;
+}
+
+export interface CreateVaultResult {
+  /** The 24-word BIP39 recovery phrase. Shown once; never retrievable again. */
+  mnemonic: string;
 }
 
 export interface AirGapEnvelope {
@@ -65,8 +71,15 @@ export interface YubiKeyStatus {
 export const api = {
   vaultStatus: () => invoke<boolean>("vault_status"),
 
+  // Create a new vault. Returns the 24-word BIP39 recovery phrase, which the UI
+  // must show once for the user to back up (it is never persisted in plaintext).
   createVault: (password: string) =>
-    invoke<string>("create_vault", { password }),
+    invoke<CreateVaultResult>("create_vault", { password }),
+
+  // Restore a vault from an existing 24-word recovery phrase. Fails if a vault
+  // already exists on disk (wipe it first).
+  restoreFromMnemonic: (mnemonicPhrase: string, password: string) =>
+    invoke<string>("restore_from_mnemonic", { mnemonicPhrase, password }),
 
   unlockVault: (password: string) =>
     invoke<boolean>("unlock_vault", { password }),
