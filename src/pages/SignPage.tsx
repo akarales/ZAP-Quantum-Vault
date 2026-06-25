@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PenTool, CheckCircle2, AlertCircle, Zap, ShieldCheck, Loader2 } from "lucide-react";
+import { PenTool, CheckCircle2, AlertCircle, Zap, ShieldCheck, Loader2, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
 import { useKeyStore } from "@/store/keyStore";
-import { api } from "@/lib/api";
+import { api, type HybridSignatureHex } from "@/lib/api";
+
+function toHex(text: string): string {
+  return Array.from(new TextEncoder().encode(text))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 export function SignPage() {
   const { keys, fetchKeys } = useKeyStore();
@@ -19,23 +25,38 @@ export function SignPage() {
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
   const [message, setMessage] = useState("");
   const [signature, setSignature] = useState("");
+  const [hybridSig, setHybridSig] = useState<HybridSignatureHex | null>(null);
+  const [hybridMode, setHybridMode] = useState(false);
   const [verified, setVerified] = useState<boolean | null>(null);
   const [signing, setSigning] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
   const selectedKey = keys.find((k) => k.id === selectedKeyId);
+  const hasSignature = hybridMode ? hybridSig !== null : signature !== "";
+
+  const resetSignature = () => {
+    setSignature("");
+    setHybridSig(null);
+    setVerified(null);
+  };
 
   const handleSign = async () => {
     if (!selectedKey) return;
     setSigning(true);
     setVerified(null);
     try {
-      const messageHex = Array.from(new TextEncoder().encode(message))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-      const sig = await api.signMessageWithKey(selectedKey.id, messageHex);
-      setSignature(sig);
-      toast.success("Message signed with ML-DSA-87");
+      const messageHex = toHex(message);
+      if (hybridMode) {
+        const sig = await api.signMessageHybridWithKey(selectedKey.id, messageHex);
+        setHybridSig(sig);
+        setSignature("");
+        toast.success("Message signed with ML-DSA-87 + Ed25519");
+      } else {
+        const sig = await api.signMessageWithKey(selectedKey.id, messageHex);
+        setSignature(sig);
+        setHybridSig(null);
+        toast.success("Message signed with ML-DSA-87");
+      }
     } catch (e) {
       toast.error(`Signing failed: ${e}`);
     } finally {
@@ -44,19 +65,28 @@ export function SignPage() {
   };
 
   const handleVerify = async () => {
-    if (!selectedKey || !signature) return;
+    if (!selectedKey) return;
     setVerifying(true);
     try {
-      const messageHex = Array.from(new TextEncoder().encode(message))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-      const result = await api.verifyMessage({
-        public_key_hex: selectedKey.public_key_hex,
-        message_hex: messageHex,
-        signature_hex: signature,
-      });
+      const messageHex = toHex(message);
+      let result: boolean;
+      if (hybridMode) {
+        if (!hybridSig) return;
+        result = await api.verifyMessageHybrid(hybridSig, messageHex);
+      } else {
+        if (!signature) return;
+        result = await api.verifyMessage({
+          public_key_hex: selectedKey.public_key_hex,
+          message_hex: messageHex,
+          signature_hex: signature,
+        });
+      }
       setVerified(result);
-      result ? toast.success("Signature verified!") : toast.error("Signature verification failed");
+      if (result) {
+        toast.success("Signature verified!");
+      } else {
+        toast.error("Signature verification failed");
+      }
     } catch (e) {
       setVerified(false);
       toast.error(`Verification failed: ${e}`);
@@ -113,14 +143,39 @@ export function SignPage() {
               <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Message</label>
               <Textarea
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  resetSignature();
+                }}
                 placeholder="Enter message to sign..."
                 rows={5}
               />
             </div>
+
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+              <input
+                type="checkbox"
+                checked={hybridMode}
+                onChange={(e) => {
+                  setHybridMode(e.target.checked);
+                  resetSignature();
+                }}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              />
+              <span className="text-sm">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Layers className="h-3.5 w-3.5 text-primary" /> Hybrid signature
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Adds a classical Ed25519 signature alongside ML-DSA-87, so a break in
+                  either algorithm alone cannot forge it.
+                </span>
+              </span>
+            </label>
+
             <Button onClick={handleSign} disabled={!selectedKey || !message || signing}>
               {signing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenTool className="h-4 w-4" />}
-              Sign with ML-DSA-87
+              {hybridMode ? "Sign with ML-DSA-87 + Ed25519" : "Sign with ML-DSA-87"}
             </Button>
           </CardContent>
         </Card>
@@ -134,15 +189,37 @@ export function SignPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <AnimatePresence mode="wait">
-              {signature ? (
+              {hasSignature ? (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                  <div>
-                    <div className="mb-1 flex items-center justify-between">
-                      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Signature (hex)</label>
-                      <CopyButton text={signature} />
+                  {hybridMode && hybridSig ? (
+                    <div className="space-y-3">
+                      <Badge variant="secondary" className="gap-1.5">
+                        <Layers className="h-3 w-3" /> {hybridSig.algorithm}
+                      </Badge>
+                      <div>
+                        <div className="mb-1 flex items-center justify-between">
+                          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">ML-DSA-87 signature (hex)</label>
+                          <CopyButton text={hybridSig.primary_hex} />
+                        </div>
+                        <p className="rounded-md bg-muted px-3 py-2 text-xs font-mono break-all max-h-28 overflow-y-auto">{hybridSig.primary_hex}</p>
+                      </div>
+                      <div>
+                        <div className="mb-1 flex items-center justify-between">
+                          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ed25519 signature (hex)</label>
+                          <CopyButton text={hybridSig.secondary_hex} />
+                        </div>
+                        <p className="rounded-md bg-muted px-3 py-2 text-xs font-mono break-all">{hybridSig.secondary_hex}</p>
+                      </div>
                     </div>
-                    <p className="rounded-md bg-muted px-3 py-2 text-xs font-mono break-all max-h-32 overflow-y-auto">{signature}</p>
-                  </div>
+                  ) : (
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Signature (hex)</label>
+                        <CopyButton text={signature} />
+                      </div>
+                      <p className="rounded-md bg-muted px-3 py-2 text-xs font-mono break-all max-h-32 overflow-y-auto">{signature}</p>
+                    </div>
+                  )}
                   <Button onClick={handleVerify} disabled={verifying} variant="secondary">
                     {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                     Verify Signature

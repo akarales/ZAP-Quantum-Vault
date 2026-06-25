@@ -577,7 +577,7 @@ fn test_hd_path_with_account_builder() {
         .with_account(0)
         .with_index(1);
     assert_eq!(path.purpose, 44 | hd_derivation::HARDENED_OFFSET);
-    assert_eq!(path.account, 0 | hd_derivation::HARDENED_OFFSET);
+    assert_eq!(path.account, hd_derivation::HARDENED_OFFSET);
     assert_eq!(path.indices, vec![1]);
 }
 
@@ -807,7 +807,8 @@ fn test_hybrid_signature_sizes() {
     let signer = hybrid_signing::HybridSigner::generate().unwrap();
     let sig = signer.sign(b"test").unwrap();
     assert_eq!(sig.primary.len(), mldsa87::SIGNATURE_SIZE);
-    assert_eq!(sig.secondary.len(), 32);
+    // Secondary is now a full Ed25519 signature (64 bytes), not a 32-byte hash.
+    assert_eq!(sig.secondary.len(), 64);
     assert_eq!(sig.secondary_public_key.len(), 32);
 }
 

@@ -357,7 +357,7 @@ fn e2e_airgap_generate_and_parse_qr() {
         version: 1,
         transfer_type: TransferType::UnsignedTx,
         payload_hex: request.payload_hex.clone(),
-        nonce_hex: hex::encode(&[0u8; 24]),
+        nonce_hex: hex::encode([0u8; 24]),
         signature_hex: sig.to_hex(),
         public_key_hex: pk_hex,
         timestamp: chrono::Utc::now().timestamp() as u64,
@@ -387,7 +387,7 @@ fn e2e_airgap_invalid_secret_hex_rejected() {
 
 #[test]
 fn e2e_airgap_wrong_size_secret_rejected() {
-    let result = secret_to_public_hex(&hex::encode(&[0u8; 10]));
+    let result = secret_to_public_hex(&hex::encode([0u8; 10]));
     assert!(result.is_err());
 }
 
@@ -400,9 +400,9 @@ fn e2e_airgap_qr_checksum_integrity() {
         version: 1,
         transfer_type: TransferType::UnsignedTx,
         payload_hex: hex::encode(payload),
-        nonce_hex: hex::encode(&[0u8; 24]),
-        signature_hex: hex::encode(&[0u8; mldsa87::SIGNATURE_SIZE]),
-        public_key_hex: hex::encode(&[0u8; mldsa87::PUBLIC_KEY_SIZE]),
+        nonce_hex: hex::encode([0u8; 24]),
+        signature_hex: hex::encode([0u8; mldsa87::SIGNATURE_SIZE]),
+        public_key_hex: hex::encode([0u8; mldsa87::PUBLIC_KEY_SIZE]),
         timestamp: 0,
         checksum_hex: hex::encode(checksum.as_bytes()),
     };
@@ -427,7 +427,7 @@ fn e2e_airgap_qr_signature_verifies() {
         version: 1,
         transfer_type: TransferType::SignedTx,
         payload_hex: hex::encode(payload),
-        nonce_hex: hex::encode(&[0u8; 24]),
+        nonce_hex: hex::encode([0u8; 24]),
         signature_hex: sig.to_hex(),
         public_key_hex: pk_hex.clone(),
         timestamp: chrono::Utc::now().timestamp() as u64,
@@ -803,8 +803,10 @@ fn e2e_vault_state_keys_file_defaults_for_legacy_json() {
 
 #[test]
 fn e2e_vault_state_keys_file_roundtrip() {
-    let mut state = VaultState::default();
-    state.keys_file = "keys-abc123.enc".to_string();
+    let state = VaultState {
+        keys_file: "keys-abc123.enc".to_string(),
+        ..Default::default()
+    };
     let json = serde_json::to_string(&state).unwrap();
     let parsed: VaultState = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.keys_file, "keys-abc123.enc");

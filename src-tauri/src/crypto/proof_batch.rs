@@ -29,7 +29,7 @@ impl ProofBatcher {
         let count = layer.len();
 
         while layer.len() > 1 {
-            let mut next_layer = Vec::with_capacity((layer.len() + 1) / 2);
+            let mut next_layer = Vec::with_capacity(layer.len().div_ceil(2));
             for chunk in layer.chunks(2) {
                 let mut h = Hasher::new();
                 h.update(b"ZAP_proof_batch_node");
@@ -59,7 +59,7 @@ impl ProofBatcher {
         let mut layer: Vec<[u8; 32]> = batched.proof_hashes.clone();
 
         while layer.len() > 1 {
-            let mut next_layer = Vec::with_capacity((layer.len() + 1) / 2);
+            let mut next_layer = Vec::with_capacity(layer.len().div_ceil(2));
             for chunk in layer.chunks(2) {
                 let mut h = Hasher::new();
                 h.update(b"ZAP_proof_batch_node");

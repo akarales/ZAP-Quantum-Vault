@@ -134,6 +134,7 @@ pub fn load_keys(app: &AppHandle, file_name: &str, key: &[u8; 32]) -> Result<Vec
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn generate_key(
     app: AppHandle,
     key_type: String,
@@ -215,7 +216,7 @@ pub fn get_key_detail(key_id: String, keystore: State<'_, KeyStore>) -> Result<K
         .iter()
         .find(|k| k.id == key_id)
         .map(|k| k.to_public())
-        .ok_or_else(|| VaultError::KeyNotFound(key_id))
+        .ok_or(VaultError::KeyNotFound(key_id))
 }
 
 /// Resolve the plaintext secret key hex for a key id from the in-memory

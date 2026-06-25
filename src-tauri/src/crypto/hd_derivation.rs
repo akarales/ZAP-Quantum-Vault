@@ -94,7 +94,7 @@ impl KeyPath {
         })
     }
 
-    pub fn to_string(&self) -> String {
+    fn fmt_path(&self) -> String {
         let mut result = format!(
             "m/{}'/{}'",
             self.purpose & 0x7FFFFFFF,
@@ -118,6 +118,12 @@ impl KeyPath {
             bytes.extend_from_slice(&idx.to_be_bytes());
         }
         bytes
+    }
+}
+
+impl std::fmt::Display for KeyPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.fmt_path())
     }
 }
 
@@ -163,7 +169,7 @@ mod tests {
         assert_eq!(path.purpose, 44 | HARDENED_OFFSET);
         assert_eq!(path.account, 9999 | HARDENED_OFFSET);
         assert_eq!(path.indices.len(), 3);
-        assert_eq!(path.indices[0], 0 | HARDENED_OFFSET);
+        assert_eq!(path.indices[0], HARDENED_OFFSET);
         assert_eq!(path.indices[1], 0);
         assert_eq!(path.indices[2], 1);
     }

@@ -82,7 +82,7 @@ pub fn secret_to_public_hex(secret_hex: &str) -> Result<String> {
     let signing_key = ml_dsa::SigningKey::<ml_dsa::MlDsa87>::from_seed(&seed);
     let vk = signing_key.verifying_key();
     let pk_bytes: ml_dsa::EncodedVerifyingKey<ml_dsa::MlDsa87> = vk.to_bytes();
-    Ok(hex::encode(pk_bytes.to_vec()))
+    Ok(hex::encode(pk_bytes))
 }
 
 /// Build and serialize a signed air-gap envelope from a secret key hex.

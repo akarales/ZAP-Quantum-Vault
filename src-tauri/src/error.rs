@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum VaultError {
     #[error("crypto error: {0}")]
     Crypto(#[from] crate::crypto::CryptoError),
+    #[error("hybrid signing error: {0}")]
+    HybridSigning(#[from] crate::crypto::hybrid_signing::HybridSigningError),
     #[error("KDF error: {0}")]
     Kdf(#[from] crate::crypto::kdf::KdfError),
     #[error("encryption error: {0}")]

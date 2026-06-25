@@ -42,6 +42,17 @@ export interface VerifyRequest {
   signature_hex: string;
 }
 
+export interface HybridSignatureHex {
+  /** ML-DSA-87 (post-quantum) signature, hex. */
+  primary_hex: string;
+  /** Ed25519 (classical) signature, hex (64 bytes). */
+  secondary_hex: string;
+  primary_public_key_hex: string;
+  secondary_public_key_hex: string;
+  /** e.g. "ML-DSA-87+Ed25519". */
+  algorithm: string;
+}
+
 export interface QrRequest {
   payload_hex: string;
   transfer_type: string;
@@ -139,8 +150,17 @@ export const api = {
   signMessageWithKey: (keyId: string, messageHex: string) =>
     invoke<string>("sign_message_with_key", { keyId, messageHex }),
 
+  // Hybrid sign (post-quantum ML-DSA-87 + classical Ed25519) with a stored key.
+  // Both signatures must verify; secret never leaves the backend.
+  signMessageHybridWithKey: (keyId: string, messageHex: string) =>
+    invoke<HybridSignatureHex>("sign_message_hybrid_with_key", { keyId, messageHex }),
+
   verifyMessage: (request: VerifyRequest) =>
     invoke<boolean>("verify_message", { request }),
+
+  // Verify a hybrid signature; true only if both components verify.
+  verifyMessageHybrid: (signature: HybridSignatureHex, messageHex: string) =>
+    invoke<boolean>("verify_message_hybrid", { signature, messageHex }),
 
   generateQr: (request: QrRequest) =>
     invoke<string>("generate_qr", { request }),
